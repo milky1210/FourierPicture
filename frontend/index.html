@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>フーリエ変換による一筆書き抽象化</title>
+  <style>
+    canvas {
+      border: 1px solid #000;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>一筆書きの絵を描いてください</h1>
+  <!-- ユーザーが描くキャンバス -->
+  <canvas id="drawCanvas" width="600" height="400"></canvas>
+  <br>
+  <button id="processBtn">フーリエ変換して抽象化</button>
+  
+  <h2>抽象化後の描画（上位 Fourier 成分のみ）</h2>
+  <!-- 再構成結果を表示するキャンバス -->
+  <canvas id="reconCanvas" width="600" height="400"></canvas>
+  
+  <script>
+    // 描画キャンバスの設定
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    let points = [];
+
+    canvas.addEventListener('mousedown', (e) => {
+      drawing = true;
+      points = [];  // 新規描画時は座標リストを初期化
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      points.push([x, y]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      points.push([x, y]);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      drawing = false;
+    });
+
+    // ボタン押下時にバックエンドへ点群データを送信
+    document.getElementById('processBtn').addEventListener('click', () => {
+      if (points.length === 0) {
+        alert("まずはキャンバス上に描いてください");
+        return;
+      }
+      fetch('/process', {  // 同一オリジン内なので、パスのみ指定
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: points })
+      })
+      .then(response => response.json())
+      .then(data => {
+        const reconPoints = data.points;
+        const reconCanvas = document.getElementById('reconCanvas');
+        const rctx = reconCanvas.getContext('2d');
+        rctx.clearRect(0, 0, reconCanvas.width, reconCanvas.height);
+        if (reconPoints.length > 0) {
+          rctx.beginPath();
+          rctx.moveTo(reconPoints[0][0], reconPoints[0][1]);
+          for (let i = 1; i < reconPoints.length; i++) {
+            rctx.lineTo(reconPoints[i][0], reconPoints[i][1]);
+          }
+          rctx.strokeStyle = 'red';
+          rctx.lineWidth = 2;
+          rctx.stroke();
+        }
+      })
+      .catch(error => {
+        console.error("Error:", error);
+      });
+    });
+  </script>
+</body>
+</html>
