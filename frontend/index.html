@@ -4,22 +4,136 @@
   <meta charset="utf-8">
   <title>フーリエ変換による一筆書き抽象化</title>
   <style>
-    canvas {
-      border: 1px solid #000;
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .left-panel, .right-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-title {
+      font-size: 18px;
+      font-weight: bold;
       margin-bottom: 10px;
+      color: #555;
+    }
+    canvas {
+      border: 2px solid #333;
+      border-radius: 5px;
+      cursor: crosshair;
+      background-color: white;
+    }
+    .controls {
+      margin-top: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    label {
+      font-weight: bold;
+      color: #555;
+    }
+    input[type="number"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 100px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button.secondary {
+      background-color: #2196F3;
+    }
+    button.secondary:hover {
+      background-color: #0b7dda;
+    }
+    button.clear {
+      background-color: #f44336;
+    }
+    button.clear:hover {
+      background-color: #da190b;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>一筆書きの絵を描いてください</h1>
-  <!-- ユーザーが描くキャンバス -->
-  <canvas id="drawCanvas" width="600" height="400"></canvas>
-  <br>
-  <button id="processBtn">フーリエ変換して抽象化</button>
+  <h1>フーリエ変換による一筆書き抽象化</h1>
   
-  <h2>抽象化後の描画（上位 Fourier 成分のみ）</h2>
-  <!-- 再構成結果を表示するキャンバス -->
-  <canvas id="reconCanvas" width="600" height="400"></canvas>
+  <div class="container">
+    <!-- 左パネル: 入力 -->
+    <div class="left-panel">
+      <div class="panel-title">入力パレット</div>
+      <canvas id="drawCanvas" width="600" height="400"></canvas>
+      
+      <div class="controls">
+        <div class="control-group">
+          <label for="kValue">フーリエ項数 K:</label>
+          <input type="number" id="kValue" value="10" min="1" max="1000">
+        </div>
+        
+        <div class="button-group">
+          <button id="processBtn">フーリエ変換</button>
+          <button id="clearBtn" class="clear">クリア</button>
+          <button id="downloadInputBtn" class="secondary">入力画像をダウンロード</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 右パネル: 出力 -->
+    <div class="right-panel">
+      <div class="panel-title">生成された画像</div>
+      <canvas id="reconCanvas" width="600" height="400"></canvas>
+      
+      <div class="controls">
+        <div class="button-group">
+          <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
+        </div>
+      </div>
+    </div>
+  </div>
   
   <script>
     // 描画キャンバスの設定
@@ -28,15 +142,32 @@
     let drawing = false;
     let points = [];
 
+    // 再構成キャンバスの設定
+    const reconCanvas = document.getElementById('reconCanvas');
+    const rctx = reconCanvas.getContext('2d');
+
+    // 背景を白で塗りつぶす（ダウンロード時のため）
+    function initCanvas(context, canvasElement) {
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    }
+
+    initCanvas(ctx, canvas);
+    initCanvas(rctx, reconCanvas);
+
+    // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
       points = [];  // 新規描画時は座標リストを初期化
+      initCanvas(ctx, canvas);  // キャンバスをクリア
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       points.push([x, y]);
       ctx.beginPath();
       ctx.moveTo(x, y);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -53,23 +184,73 @@
       drawing = false;
     });
 
-    // ボタン押下時にバックエンドへ点群データを送信
+    canvas.addEventListener('mouseleave', () => {
+      drawing = false;
+    });
+
+    // タッチイベント（スマホ対応）
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      drawing = true;
+      points = [];
+      initCanvas(ctx, canvas);
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      points.push([x, y]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      points.push([x, y]);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      drawing = false;
+    });
+
+    // クリアボタン
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      points = [];
+      initCanvas(ctx, canvas);
+      initCanvas(rctx, reconCanvas);
+    });
+
+    // フーリエ変換ボタン
     document.getElementById('processBtn').addEventListener('click', () => {
       if (points.length === 0) {
         alert("まずはキャンバス上に描いてください");
         return;
       }
-      fetch('/process', {  // 同一オリジン内なので、パスのみ指定
+      
+      const K = parseInt(document.getElementById('kValue').value);
+      if (isNaN(K) || K < 1) {
+        alert("K の値は1以上の整数を入力してください");
+        return;
+      }
+
+      fetch('/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: points })
+        body: JSON.stringify({ points: points, K: K })
       })
       .then(response => response.json())
       .then(data => {
         const reconPoints = data.points;
-        const reconCanvas = document.getElementById('reconCanvas');
-        const rctx = reconCanvas.getContext('2d');
-        rctx.clearRect(0, 0, reconCanvas.width, reconCanvas.height);
+        initCanvas(rctx, reconCanvas);
         if (reconPoints.length > 0) {
           rctx.beginPath();
           rctx.moveTo(reconPoints[0][0], reconPoints[0][1]);
@@ -83,7 +264,24 @@
       })
       .catch(error => {
         console.error("Error:", error);
+        alert("エラーが発生しました: " + error.message);
       });
+    });
+
+    // 入力画像ダウンロード
+    document.getElementById('downloadInputBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'input_image.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    });
+
+    // 生成画像ダウンロード
+    document.getElementById('downloadOutputBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'fourier_image.png';
+      link.href = reconCanvas.toDataURL('image/png');
+      link.click();
     });
   </script>
 </body>
