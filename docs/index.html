@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>フーリエ変換による落書き抽象化</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f5f5f5;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    @media (max-width: 900px) {
+      .container {
+        flex-direction: column;
+      }
+    }
+    .left-panel, .right-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #555;
+    }
+    canvas {
+      border: 2px solid #333;
+      border-radius: 5px;
+      cursor: crosshair;
+      background-color: white;
+      max-width: 100%;
+      height: auto;
+    }
+    .controls {
+      margin-top: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    label {
+      font-weight: bold;
+      color: #555;
+    }
+    input[type="number"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 100px;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background-color: #2196F3;
+    }
+    button.secondary:hover {
+      background-color: #0b7dda;
+    }
+    button.clear {
+      background-color: #f44336;
+    }
+    button.clear:hover {
+      background-color: #da190b;
+    }
+    button.animation {
+      background-color: #9C27B0;
+    }
+    button.animation:hover {
+      background-color: #7B1FA2;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .status {
+      font-size: 14px;
+      color: #666;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      min-height: 40px;
+    }
+    .progress-container {
+      width: 100%;
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #9C27B0;
+      width: 0%;
+      transition: width 0.1s;
+    }
+    .mode-info {
+      font-size: 12px;
+      color: #888;
+      margin-top: 5px;
+    }
+    footer {
+      text-align: center;
+      margin-top: 20px;
+      color: #888;
+      font-size: 12px;
+    }
+    footer a {
+      color: #2196F3;
+      text-decoration: none;
+    }
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>フーリエ変換による落書き抽象化</h1>
+  
+  <div class="container">
+    <!-- 左パネル: 入力 -->
+    <div class="left-panel">
+      <div class="panel-title">入力パレット</div>
+      <canvas id="drawCanvas" width="600" height="400"></canvas>
+      
+      <div class="controls">
+        <div class="control-group">
+          <label for="multiStrokeMode">
+            <input type="checkbox" id="multiStrokeMode" checked> 複数ストロークモード
+          </label>
+        </div>
+        <div class="mode-info" id="modeInfo">複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。</div>
+        
+        <div class="control-group">
+          <label for="kValue">フーリエ項数 K:</label>
+          <input type="number" id="kValue" value="10" min="1" max="1000">
+        </div>
+        
+        <div class="button-group">
+          <button id="processBtn">フーリエ変換</button>
+          <button id="clearBtn" class="clear">クリア</button>
+          <button id="downloadInputBtn" class="secondary">入力画像をダウンロード</button>
+        </div>
+        
+        <div class="control-group">
+          <label for="numFrames">アニメーションフレーム数:</label>
+          <input type="number" id="numFrames" value="30" min="5" max="100">
+        </div>
+        
+        <div class="button-group">
+          <button id="animationBtn" class="animation">アニメーション生成</button>
+          <button id="downloadVideoBtn" class="animation" disabled>動画をダウンロード</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 右パネル: 出力 -->
+    <div class="right-panel">
+      <div class="panel-title">生成された画像</div>
+      <canvas id="reconCanvas" width="600" height="400"></canvas>
+      
+      <div class="controls">
+        <div class="status" id="statusText">描画してフーリエ変換を実行してください</div>
+        <div class="progress-container" id="progressContainer" style="display: none;">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="button-group">
+          <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <footer>
+    <p>Created by <a href="https://github.com/milky1210" target="_blank">milky1210</a> | <a href="https://github.com/milky1210/FourierPicture" target="_blank">GitHub</a></p>
+  </footer>
+  
+  <script>
+    // ============================================
+    // FFT実装（JavaScript版）
+    // ============================================
+    
+    // 複素数クラス
+    class Complex {
+      constructor(re, im) {
+        this.re = re;
+        this.im = im;
+      }
+      
+      add(other) {
+        return new Complex(this.re + other.re, this.im + other.im);
+      }
+      
+      sub(other) {
+        return new Complex(this.re - other.re, this.im - other.im);
+      }
+      
+      mul(other) {
+        return new Complex(
+          this.re * other.re - this.im * other.im,
+          this.re * other.im + this.im * other.re
+        );
+      }
+      
+      scale(s) {
+        return new Complex(this.re * s, this.im * s);
+      }
+      
+      abs() {
+        return Math.sqrt(this.re * this.re + this.im * this.im);
+      }
+    }
+    
+    // DFT（離散フーリエ変換）- 任意の長さに対応
+    function dft(input) {
+      const N = input.length;
+      const output = [];
+      
+      for (let k = 0; k < N; k++) {
+        let sum = new Complex(0, 0);
+        for (let n = 0; n < N; n++) {
+          const angle = -2 * Math.PI * k * n / N;
+          const exp = new Complex(Math.cos(angle), Math.sin(angle));
+          sum = sum.add(input[n].mul(exp));
+        }
+        output.push(sum);
+      }
+      
+      return output;
+    }
+    
+    // FFT周波数配列を生成
+    function fftfreq(N) {
+      const freqs = [];
+      for (let i = 0; i < N; i++) {
+        if (i < Math.floor((N + 1) / 2)) {
+          freqs.push(i / N);
+        } else {
+          freqs.push((i - N) / N);
+        }
+      }
+      return freqs;
+    }
+    
+    // 2D版フーリエ再構成
+    function reconstructFourier2d(points, K) {
+      const N = points.length;
+      if (N === 0) return [];
+      
+      // 複素数配列に変換
+      const z = points.map(p => new Complex(p[0], p[1]));
+      
+      // DFT計算
+      const F = dft(z);
+      const freqs = fftfreq(N);
+      
+      // 振幅でソート
+      const amplitudes = F.map(c => c.abs());
+      const indices = Array.from({ length: N }, (_, i) => i);
+      indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+      
+      // 上位K個を選択
+      const actualK = Math.min(K, N);
+      const selectedIndices = indices.slice(0, actualK);
+      
+      // 再構成
+      const numOutputPoints = Math.max(N, 200);
+      const result = [];
+      
+      for (let i = 0; i < numOutputPoints; i++) {
+        const t = i / numOutputPoints;
+        let sum = new Complex(0, 0);
+        
+        for (const k of selectedIndices) {
+          const freq = freqs[k] * N;
+          const angle = 2 * Math.PI * freq * t;
+          const exp = new Complex(Math.cos(angle), Math.sin(angle));
+          sum = sum.add(F[k].scale(1 / N).mul(exp));
+        }
+        
+        result.push([sum.re, sum.im]);
+      }
+      
+      return result;
+    }
+    
+    // 3D版フーリエ再構成（x, y, pen）
+    function reconstructFourier3d(points, K) {
+      const N = points.length;
+      if (N === 0) return [];
+      
+      // 各軸を複素数配列に（実部のみ使用）
+      const x = points.map(p => new Complex(p[0], 0));
+      const y = points.map(p => new Complex(p[1], 0));
+      const pen = points.map(p => new Complex(p[2], 0));
+      
+      // DFT計算
+      const Fx = dft(x);
+      const Fy = dft(y);
+      const Fpen = dft(pen);
+      const freqs = fftfreq(N);
+      
+      // 振幅の合計でソート
+      const amplitudes = [];
+      for (let i = 0; i < N; i++) {
+        amplitudes.push(Fx[i].abs() + Fy[i].abs() + Fpen[i].abs());
+      }
+      const indices = Array.from({ length: N }, (_, i) => i);
+      indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+      
+      // 上位K個を選択
+      const actualK = Math.min(K, N);
+      const selectedIndices = indices.slice(0, actualK);
+      
+      // 再構成
+      const numOutputPoints = Math.max(N, 200);
+      const result = [];
+      
+      for (let i = 0; i < numOutputPoints; i++) {
+        const t = i / numOutputPoints;
+        let sumX = new Complex(0, 0);
+        let sumY = new Complex(0, 0);
+        let sumPen = new Complex(0, 0);
+        
+        for (const k of selectedIndices) {
+          const freq = freqs[k] * N;
+          const angle = 2 * Math.PI * freq * t;
+          const exp = new Complex(Math.cos(angle), Math.sin(angle));
+          sumX = sumX.add(Fx[k].scale(1 / N).mul(exp));
+          sumY = sumY.add(Fy[k].scale(1 / N).mul(exp));
+          sumPen = sumPen.add(Fpen[k].scale(1 / N).mul(exp));
+        }
+        
+        // pen値を0-1にクリップ
+        const penVal = Math.max(0, Math.min(1, sumPen.re));
+        result.push([sumX.re, sumY.re, penVal]);
+      }
+      
+      return result;
+    }
+    
+    // アニメーションフレーム生成
+    function generateAnimationFrames(points, numFrames, is3d) {
+      const N = points.length;
+      if (N === 0) return [];
+      if (N < 2) return [{ K: N, points: points, isFinal: true }];
+      
+      const reconstructFn = is3d ? reconstructFourier3d : reconstructFourier2d;
+      
+      const kMin = 2;
+      const kMax = N;
+      
+      // K値をサンプリング
+      const kValuesSet = new Set();
+      for (let i = 0; i < numFrames; i++) {
+        let k;
+        if (numFrames === 1) {
+          k = kMax;
+        } else {
+          const t = i / (numFrames - 1);
+          const tAdjusted = Math.pow(t, 0.6);
+          const logK = Math.log(kMin) + (Math.log(kMax) - Math.log(kMin)) * tAdjusted;
+          k = Math.round(Math.exp(logK));
+        }
+        k = Math.max(kMin, Math.min(k, kMax));
+        kValuesSet.add(k);
+      }
+      
+      const kValues = Array.from(kValuesSet).sort((a, b) => a - b);
+      
+      // フレーム生成
+      const frames = [];
+      for (const k of kValues) {
+        const reconstructed = reconstructFn(points, k);
+        frames.push({
+          K: k,
+          points: reconstructed,
+          isFinal: false
+        });
+      }
+      
+      // 最終フレーム
+      const finalPoints = reconstructFn(points, N);
+      frames.push({
+        K: N,
+        points: finalPoints,
+        isFinal: true
+      });
+      
+      return frames;
+    }
+
+    // ============================================
+    // UI部分
+    // ============================================
+    
+    // 描画キャンバスの設定
+    const canvas = document.getElementById('drawCanvas');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+    
+    // 点群データ
+    let currentStroke = [];
+    let strokes = [];
+    
+    // モード
+    let multiStrokeMode = true;
+
+    // 再構成キャンバスの設定
+    const reconCanvas = document.getElementById('reconCanvas');
+    const rctx = reconCanvas.getContext('2d');
+    
+    // アニメーション用
+    let animationFrames = [];
+    let currentFrameIndex = 0;
+    let isPlaying = false;
+    let animationId = null;
+
+    // 背景を白で塗りつぶす
+    function initCanvas(context, canvasElement) {
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    }
+
+    function updateStatus(text) {
+      document.getElementById('statusText').textContent = text;
+    }
+
+    function showProgress(show) {
+      document.getElementById('progressContainer').style.display = show ? 'block' : 'none';
+    }
+
+    function setProgress(percent) {
+      document.getElementById('progressBar').style.width = percent + '%';
+    }
+
+    // 入力キャンバスを再描画
+    function redrawInputCanvas() {
+      initCanvas(ctx, canvas);
+      
+      for (const stroke of strokes) {
+        if (stroke.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(stroke[0][0], stroke[0][1]);
+          for (let i = 1; i < stroke.length; i++) {
+            ctx.lineTo(stroke[i][0], stroke[i][1]);
+          }
+          ctx.strokeStyle = 'black';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+      
+      if (currentStroke.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(currentStroke[0][0], currentStroke[0][1]);
+        for (let i = 1; i < currentStroke.length; i++) {
+          ctx.lineTo(currentStroke[i][0], currentStroke[i][1]);
+        }
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // 3D点群を生成
+    function generatePoints3d() {
+      const allStrokes = [...strokes];
+      if (currentStroke.length > 0) {
+        allStrokes.push(currentStroke);
+      }
+      
+      if (allStrokes.length === 0) return [];
+      
+      const result = [];
+      
+      for (let s = 0; s < allStrokes.length; s++) {
+        const stroke = allStrokes[s];
+        
+        if (s > 0 && result.length > 0 && stroke.length > 0) {
+          const lastPoint = result[result.length - 1];
+          const firstPoint = stroke[0];
+          
+          const numInterp = 10;
+          for (let i = 1; i <= numInterp; i++) {
+            const t = i / numInterp;
+            const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
+            const y = lastPoint[1] + (firstPoint[1] - lastPoint[1]) * t;
+            result.push([x, y, 0]);
+          }
+        }
+        
+        for (const pt of stroke) {
+          result.push([pt[0], pt[1], 1]);
+        }
+      }
+      
+      if (result.length > 0) {
+        const lastPoint = result[result.length - 1];
+        const firstPoint = result[0];
+        
+        const numInterp = 10;
+        for (let i = 1; i <= numInterp; i++) {
+          const t = i / numInterp;
+          const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
+          const y = lastPoint[1] + (firstPoint[1] - lastPoint[1]) * t;
+          result.push([x, y, 0]);
+        }
+      }
+      
+      return result;
+    }
+
+    // 2D点群を生成
+    function generatePoints2d() {
+      const allStrokes = [...strokes];
+      if (currentStroke.length > 0) {
+        allStrokes.push(currentStroke);
+      }
+      
+      const result = [];
+      for (const stroke of allStrokes) {
+        for (const pt of stroke) {
+          result.push([pt[0], pt[1]]);
+        }
+      }
+      return result;
+    }
+
+    initCanvas(ctx, canvas);
+    initCanvas(rctx, reconCanvas);
+
+    // モード切り替え
+    document.getElementById('multiStrokeMode').addEventListener('change', (e) => {
+      multiStrokeMode = e.target.checked;
+      const modeInfo = document.getElementById('modeInfo');
+      if (multiStrokeMode) {
+        modeInfo.textContent = '複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。';
+      } else {
+        modeInfo.textContent = '一筆書きモード: 描くたびにリセットされます';
+      }
+    });
+
+    // 描画イベント（マウス）
+    canvas.addEventListener('mousedown', (e) => {
+      drawing = true;
+      
+      if (!multiStrokeMode) {
+        strokes = [];
+        currentStroke = [];
+        initCanvas(ctx, canvas);
+      }
+      
+      currentStroke = [];
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      currentStroke.push([x, y]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      currentStroke.push([x, y]);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
+      drawing = false;
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
+      drawing = false;
+    });
+
+    // タッチイベント
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      drawing = true;
+      
+      if (!multiStrokeMode) {
+        strokes = [];
+        currentStroke = [];
+        initCanvas(ctx, canvas);
+      }
+      
+      currentStroke = [];
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      currentStroke.push([x, y]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      currentStroke.push([x, y]);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
+      drawing = false;
+    });
+
+    // 3D点群を描画
+    const PEN_THRESHOLD = 0.5;
+    
+    function drawPoints3d(context, canvasEl, pts) {
+      initCanvas(context, canvasEl);
+      if (pts.length < 2) return;
+      
+      for (let i = 1; i < pts.length; i++) {
+        const x0 = pts[i-1][0];
+        const y0 = pts[i-1][1];
+        const pen0 = pts[i-1][2];
+        const x1 = pts[i][0];
+        const y1 = pts[i][1];
+        const pen1 = pts[i][2];
+        
+        const penAvg = (pen0 + pen1) / 2;
+        
+        if (penAvg < PEN_THRESHOLD) continue;
+        
+        const alpha = (penAvg - PEN_THRESHOLD) / (1 - PEN_THRESHOLD);
+        
+        context.beginPath();
+        context.moveTo(x0, y0);
+        context.lineTo(x1, y1);
+        context.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+        context.lineWidth = 2;
+        context.stroke();
+      }
+    }
+
+    // 2D点群を描画
+    function drawPoints2d(context, canvasEl, pts, color = 'red') {
+      initCanvas(context, canvasEl);
+      if (pts.length > 0) {
+        context.beginPath();
+        context.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) {
+          context.lineTo(pts[i][0], pts[i][1]);
+        }
+        context.strokeStyle = color;
+        context.lineWidth = 2;
+        context.stroke();
+      }
+    }
+
+    // 点群を描画
+    function drawPoints(context, canvasEl, pts) {
+      if (pts.length === 0) return;
+      
+      if (pts[0].length === 3) {
+        drawPoints3d(context, canvasEl, pts);
+      } else {
+        drawPoints2d(context, canvasEl, pts);
+      }
+    }
+
+    // クリアボタン
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      strokes = [];
+      currentStroke = [];
+      animationFrames = [];
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
+        animationId = null;
+      }
+      isPlaying = false;
+      initCanvas(ctx, canvas);
+      initCanvas(rctx, reconCanvas);
+      document.getElementById('downloadVideoBtn').disabled = true;
+      updateStatus('描画してフーリエ変換を実行してください');
+    });
+
+    // フーリエ変換ボタン
+    document.getElementById('processBtn').addEventListener('click', () => {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
+        alert("まずはキャンバス上に描いてください");
+        return;
+      }
+      
+      const K = parseInt(document.getElementById('kValue').value);
+      if (isNaN(K) || K < 1) {
+        alert("K の値は1以上の整数を入力してください");
+        return;
+      }
+
+      updateStatus('処理中...');
+      
+      const useMultiStroke = multiStrokeMode && strokes.length > 1;
+      const inputPoints = useMultiStroke ? points3d : points2d;
+      
+      // JavaScriptでフーリエ変換を実行
+      setTimeout(() => {
+        try {
+          let result;
+          if (useMultiStroke) {
+            result = reconstructFourier3d(inputPoints, K);
+          } else {
+            result = reconstructFourier2d(inputPoints, K);
+          }
+          
+          drawPoints(rctx, reconCanvas, result);
+          const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
+          updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${inputPoints.length}${strokeInfo})`);
+        } catch (error) {
+          console.error("Error:", error);
+          alert("エラーが発生しました: " + error.message);
+          updateStatus('エラーが発生しました');
+        }
+      }, 10);
+    });
+
+    // アニメーション生成ボタン
+    document.getElementById('animationBtn').addEventListener('click', () => {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
+        alert("まずはキャンバス上に描いてください");
+        return;
+      }
+      
+      const numFrames = parseInt(document.getElementById('numFrames').value);
+      if (isNaN(numFrames) || numFrames < 5) {
+        alert("フレーム数は5以上の整数を入力してください");
+        return;
+      }
+
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
+        animationId = null;
+      }
+
+      updateStatus('アニメーションデータを生成中...');
+      showProgress(true);
+      setProgress(0);
+
+      const useMultiStroke = multiStrokeMode && strokes.length > 1;
+      const inputPoints = useMultiStroke ? points3d : points2d;
+
+      // JavaScriptでフレーム生成
+      setTimeout(() => {
+        try {
+          animationFrames = generateAnimationFrames(inputPoints, numFrames, useMultiStroke);
+          
+          if (animationFrames.length === 0) {
+            updateStatus('アニメーションデータがありません');
+            showProgress(false);
+            return;
+          }
+          
+          currentFrameIndex = 0;
+          isPlaying = true;
+          document.getElementById('downloadVideoBtn').disabled = false;
+          
+          updateStatus(`アニメーション再生中 (${animationFrames.length}フレーム)`);
+          
+          playAnimation();
+          
+        } catch (error) {
+          console.error("Error:", error);
+          alert("エラーが発生しました: " + error.message);
+          updateStatus('エラーが発生しました');
+          showProgress(false);
+        }
+      }, 10);
+    });
+
+    function playAnimation() {
+      if (!isPlaying || animationFrames.length === 0) return;
+      
+      const frame = animationFrames[currentFrameIndex];
+      drawPoints(rctx, reconCanvas, frame.points);
+      
+      const progress = ((currentFrameIndex + 1) / animationFrames.length) * 100;
+      setProgress(progress);
+      
+      if (frame.isFinal) {
+        updateStatus(`完成！ K = ${frame.K} (全成分)`);
+      } else {
+        updateStatus(`K = ${frame.K} (フレーム ${currentFrameIndex + 1}/${animationFrames.length})`);
+      }
+      
+      currentFrameIndex++;
+      if (currentFrameIndex >= animationFrames.length) {
+        currentFrameIndex = 0;
+      }
+      
+      const delay = frame.isFinal ? 3000 : 100;
+      
+      animationId = setTimeout(() => {
+        requestAnimationFrame(playAnimation);
+      }, delay);
+    }
+
+    // 動画ダウンロードボタン
+    document.getElementById('downloadVideoBtn').addEventListener('click', async () => {
+      if (animationFrames.length === 0) {
+        alert("まずアニメーションを生成してください");
+        return;
+      }
+
+      isPlaying = false;
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
+        animationId = null;
+      }
+
+      updateStatus('動画を生成中...');
+      showProgress(true);
+      setProgress(0);
+
+      try {
+        const stream = reconCanvas.captureStream(30);
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp9',
+          videoBitsPerSecond: 5000000
+        });
+        
+        const chunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunks.push(e.data);
+          }
+        };
+        
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'fourier_animation.webm';
+          link.click();
+          URL.revokeObjectURL(url);
+          
+          updateStatus('動画のダウンロードが完了しました');
+          showProgress(false);
+          
+          isPlaying = true;
+          playAnimation();
+        };
+
+        mediaRecorder.start();
+        
+        for (let i = 0; i < animationFrames.length; i++) {
+          const frame = animationFrames[i];
+          drawPoints(rctx, reconCanvas, frame.points);
+          setProgress(((i + 1) / animationFrames.length) * 100);
+          
+          const delay = frame.isFinal ? 3000 : 100;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        mediaRecorder.stop();
+        
+      } catch (error) {
+        console.error("Error:", error);
+        
+        alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
+        updateStatus('動画生成に失敗しました');
+        showProgress(false);
+        
+        isPlaying = true;
+        playAnimation();
+      }
+    });
+
+    // 入力画像ダウンロード
+    document.getElementById('downloadInputBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'input_image.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    });
+
+    // 生成画像ダウンロード
+    document.getElementById('downloadOutputBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'fourier_image.png';
+      link.href = reconCanvas.toDataURL('image/png');
+      link.click();
+    });
+  </script>
+</body>
+</html>
