@@ -81,6 +81,10 @@
     button:hover {
       background-color: #45a049;
     }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
     button.secondary {
       background-color: #2196F3;
     }
@@ -93,9 +97,38 @@
     button.clear:hover {
       background-color: #da190b;
     }
+    button.animation {
+      background-color: #9C27B0;
+    }
+    button.animation:hover {
+      background-color: #7B1FA2;
+    }
     .button-group {
       display: flex;
       gap: 10px;
+      flex-wrap: wrap;
+    }
+    .status {
+      font-size: 14px;
+      color: #666;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      min-height: 40px;
+    }
+    .progress-container {
+      width: 100%;
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #9C27B0;
+      width: 0%;
+      transition: width 0.1s;
     }
   </style>
 </head>
@@ -119,6 +152,16 @@
           <button id="clearBtn" class="clear">クリア</button>
           <button id="downloadInputBtn" class="secondary">入力画像をダウンロード</button>
         </div>
+        
+        <div class="control-group">
+          <label for="numFrames">アニメーションフレーム数:</label>
+          <input type="number" id="numFrames" value="30" min="5" max="100">
+        </div>
+        
+        <div class="button-group">
+          <button id="animationBtn" class="animation">アニメーション生成</button>
+          <button id="downloadVideoBtn" class="animation" disabled>動画をダウンロード</button>
+        </div>
       </div>
     </div>
     
@@ -128,6 +171,10 @@
       <canvas id="reconCanvas" width="600" height="400"></canvas>
       
       <div class="controls">
+        <div class="status" id="statusText">描画してフーリエ変換を実行してください</div>
+        <div class="progress-container" id="progressContainer" style="display: none;">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
         <div class="button-group">
           <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
         </div>
@@ -145,11 +192,29 @@
     // 再構成キャンバスの設定
     const reconCanvas = document.getElementById('reconCanvas');
     const rctx = reconCanvas.getContext('2d');
+    
+    // アニメーション用
+    let animationFrames = [];
+    let currentFrameIndex = 0;
+    let isPlaying = false;
+    let animationId = null;
 
     // 背景を白で塗りつぶす（ダウンロード時のため）
     function initCanvas(context, canvasElement) {
       context.fillStyle = 'white';
       context.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    }
+
+    function updateStatus(text) {
+      document.getElementById('statusText').textContent = text;
+    }
+
+    function showProgress(show) {
+      document.getElementById('progressContainer').style.display = show ? 'block' : 'none';
+    }
+
+    function setProgress(percent) {
+      document.getElementById('progressBar').style.width = percent + '%';
     }
 
     initCanvas(ctx, canvas);
@@ -158,8 +223,8 @@
     // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
-      points = [];  // 新規描画時は座標リストを初期化
-      initCanvas(ctx, canvas);  // キャンバスをクリア
+      points = [];
+      initCanvas(ctx, canvas);
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -222,11 +287,34 @@
       drawing = false;
     });
 
+    // キャンバスに点列を描画する関数
+    function drawPoints(context, canvasEl, pts, color = 'red') {
+      initCanvas(context, canvasEl);
+      if (pts.length > 0) {
+        context.beginPath();
+        context.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) {
+          context.lineTo(pts[i][0], pts[i][1]);
+        }
+        context.strokeStyle = color;
+        context.lineWidth = 2;
+        context.stroke();
+      }
+    }
+
     // クリアボタン
     document.getElementById('clearBtn').addEventListener('click', () => {
       points = [];
+      animationFrames = [];
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      isPlaying = false;
       initCanvas(ctx, canvas);
       initCanvas(rctx, reconCanvas);
+      document.getElementById('downloadVideoBtn').disabled = true;
+      updateStatus('描画してフーリエ変換を実行してください');
     });
 
     // フーリエ変換ボタン
@@ -242,6 +330,8 @@
         return;
       }
 
+      updateStatus('処理中...');
+      
       fetch('/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -249,23 +339,184 @@
       })
       .then(response => response.json())
       .then(data => {
-        const reconPoints = data.points;
-        initCanvas(rctx, reconCanvas);
-        if (reconPoints.length > 0) {
-          rctx.beginPath();
-          rctx.moveTo(reconPoints[0][0], reconPoints[0][1]);
-          for (let i = 1; i < reconPoints.length; i++) {
-            rctx.lineTo(reconPoints[i][0], reconPoints[i][1]);
-          }
-          rctx.strokeStyle = 'red';
-          rctx.lineWidth = 2;
-          rctx.stroke();
-        }
+        drawPoints(rctx, reconCanvas, data.points);
+        updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${points.length})`);
       })
       .catch(error => {
         console.error("Error:", error);
         alert("エラーが発生しました: " + error.message);
+        updateStatus('エラーが発生しました');
       });
+    });
+
+    // アニメーション生成ボタン
+    document.getElementById('animationBtn').addEventListener('click', async () => {
+      if (points.length === 0) {
+        alert("まずはキャンバス上に描いてください");
+        return;
+      }
+      
+      const numFrames = parseInt(document.getElementById('numFrames').value);
+      if (isNaN(numFrames) || numFrames < 5) {
+        alert("フレーム数は5以上の整数を入力してください");
+        return;
+      }
+
+      // 既存のアニメーションを停止
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+
+      updateStatus('アニメーションデータを生成中...');
+      showProgress(true);
+      setProgress(0);
+
+      try {
+        const response = await fetch('/process_animation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points: points, numFrames: numFrames })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Animation response:', data);
+        
+        if (!data.frames || data.frames.length === 0) {
+          updateStatus('アニメーションデータがありません');
+          showProgress(false);
+          return;
+        }
+        
+        animationFrames = data.frames;
+
+        currentFrameIndex = 0;
+        isPlaying = true;
+        document.getElementById('downloadVideoBtn').disabled = false;
+        
+        updateStatus(`アニメーション再生中 (${animationFrames.length}フレーム)`);
+        
+        // アニメーション再生
+        playAnimation();
+        
+      } catch (error) {
+        console.error("Error:", error);
+        alert("エラーが発生しました: " + error.message);
+        updateStatus('エラーが発生しました');
+        showProgress(false);
+      }
+    });
+
+    function playAnimation() {
+      if (!isPlaying || animationFrames.length === 0) return;
+      
+      const frame = animationFrames[currentFrameIndex];
+      drawPoints(rctx, reconCanvas, frame.points);
+      
+      const progress = ((currentFrameIndex + 1) / animationFrames.length) * 100;
+      setProgress(progress);
+      
+      if (frame.isFinal) {
+        updateStatus(`完成！ K = ${frame.K} (全成分)`);
+      } else {
+        updateStatus(`K = ${frame.K} (フレーム ${currentFrameIndex + 1}/${animationFrames.length})`);
+      }
+      
+      currentFrameIndex++;
+      if (currentFrameIndex >= animationFrames.length) {
+        currentFrameIndex = 0;  // ループ
+      }
+      
+      // 最終フレーム（isFinal）の場合は3秒間表示、それ以外は100ms
+      const delay = frame.isFinal ? 3000 : 100;
+      
+      animationId = setTimeout(() => {
+        requestAnimationFrame(playAnimation);
+      }, delay);
+    }
+
+    // 動画ダウンロードボタン
+    document.getElementById('downloadVideoBtn').addEventListener('click', async () => {
+      if (animationFrames.length === 0) {
+        alert("まずアニメーションを生成してください");
+        return;
+      }
+
+      // アニメーションを一時停止
+      isPlaying = false;
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
+        animationId = null;
+      }
+
+      updateStatus('動画を生成中...');
+      showProgress(true);
+      setProgress(0);
+
+      try {
+        // MediaRecorderを使用して動画を生成
+        const stream = reconCanvas.captureStream(30);
+        const mediaRecorder = new MediaRecorder(stream, {
+          mimeType: 'video/webm;codecs=vp9',
+          videoBitsPerSecond: 5000000
+        });
+        
+        const chunks = [];
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunks.push(e.data);
+          }
+        };
+        
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'fourier_animation.webm';
+          link.click();
+          URL.revokeObjectURL(url);
+          
+          updateStatus('動画のダウンロードが完了しました');
+          showProgress(false);
+          
+          // アニメーションを再開
+          isPlaying = true;
+          playAnimation();
+        };
+
+        mediaRecorder.start();
+        
+        // 各フレームを描画
+        for (let i = 0; i < animationFrames.length; i++) {
+          const frame = animationFrames[i];
+          drawPoints(rctx, reconCanvas, frame.points);
+          setProgress(((i + 1) / animationFrames.length) * 100);
+          
+          // 最終フレームは3秒間表示、それ以外は100ms
+          const delay = frame.isFinal ? 3000 : 100;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+        mediaRecorder.stop();
+        
+      } catch (error) {
+        console.error("Error:", error);
+        
+        // WebM非対応の場合はGIF生成のフォールバック（簡易版）
+        alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
+        updateStatus('動画生成に失敗しました');
+        showProgress(false);
+        
+        // アニメーションを再開
+        isPlaying = true;
+        playAnimation();
+      }
     });
 
     // 入力画像ダウンロード
