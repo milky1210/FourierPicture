@@ -68,6 +68,10 @@
       font-size: 14px;
       width: 100px;
     }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
     button {
       padding: 10px 20px;
       background-color: #4CAF50;
@@ -130,10 +134,15 @@
       width: 0%;
       transition: width 0.1s;
     }
+    .mode-info {
+      font-size: 12px;
+      color: #888;
+      margin-top: 5px;
+    }
   </style>
 </head>
 <body>
-  <h1>フーリエ変換による一筆書き抽象化</h1>
+  <h1>フーリエ変換による落書き抽象化</h1>
   
   <div class="container">
     <!-- 左パネル: 入力 -->
@@ -142,6 +151,13 @@
       <canvas id="drawCanvas" width="600" height="400"></canvas>
       
       <div class="controls">
+        <div class="control-group">
+          <label for="multiStrokeMode">
+            <input type="checkbox" id="multiStrokeMode" checked> 複数ストロークモード
+          </label>
+        </div>
+        <div class="mode-info" id="modeInfo">複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。</div>
+        
         <div class="control-group">
           <label for="kValue">フーリエ項数 K:</label>
           <input type="number" id="kValue" value="10" min="1" max="1000">
@@ -187,7 +203,14 @@
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
     let drawing = false;
-    let points = [];
+    
+    // 点群データ: [x, y, pen] where pen=1 (描画中) or pen=0 (移動中)
+    let points3d = [];
+    let currentStroke = [];  // 現在のストローク
+    let strokes = [];        // 複数ストロークを保存
+    
+    // モード
+    let multiStrokeMode = true;
 
     // 再構成キャンバスの設定
     const reconCanvas = document.getElementById('reconCanvas');
@@ -199,7 +222,7 @@
     let isPlaying = false;
     let animationId = null;
 
-    // 背景を白で塗りつぶす（ダウンロード時のため）
+    // 背景を白で塗りつぶす
     function initCanvas(context, canvasElement) {
       context.fillStyle = 'white';
       context.fillRect(0, 0, canvasElement.width, canvasElement.height);
@@ -217,18 +240,136 @@
       document.getElementById('progressBar').style.width = percent + '%';
     }
 
+    // 入力キャンバスを再描画
+    function redrawInputCanvas() {
+      initCanvas(ctx, canvas);
+      
+      // 保存されたストロークを描画
+      for (const stroke of strokes) {
+        if (stroke.length > 0) {
+          ctx.beginPath();
+          ctx.moveTo(stroke[0][0], stroke[0][1]);
+          for (let i = 1; i < stroke.length; i++) {
+            ctx.lineTo(stroke[i][0], stroke[i][1]);
+          }
+          ctx.strokeStyle = 'black';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+      
+      // 現在のストロークを描画
+      if (currentStroke.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(currentStroke[0][0], currentStroke[0][1]);
+        for (let i = 1; i < currentStroke.length; i++) {
+          ctx.lineTo(currentStroke[i][0], currentStroke[i][1]);
+        }
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // 3D点群を生成（ストローク間にpen=0の移動点を追加）
+    function generatePoints3d() {
+      const allStrokes = [...strokes];
+      if (currentStroke.length > 0) {
+        allStrokes.push(currentStroke);
+      }
+      
+      if (allStrokes.length === 0) return [];
+      
+      const result = [];
+      
+      for (let s = 0; s < allStrokes.length; s++) {
+        const stroke = allStrokes[s];
+        
+        // 前のストロークの終点から現在のストロークの始点への移動（pen=0）
+        if (s > 0 && result.length > 0 && stroke.length > 0) {
+          const lastPoint = result[result.length - 1];
+          const firstPoint = stroke[0];
+          
+          // 移動経路を補間（10点程度）
+          const numInterp = 10;
+          for (let i = 1; i <= numInterp; i++) {
+            const t = i / numInterp;
+            const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
+            const y = lastPoint[1] + (firstPoint[1] - lastPoint[1]) * t;
+            result.push([x, y, 0]);  // pen=0 (off)
+          }
+        }
+        
+        // ストロークの点を追加（pen=1）
+        for (const pt of stroke) {
+          result.push([pt[0], pt[1], 1]);  // pen=1 (on)
+        }
+      }
+      
+      // 最後の点から最初の点への閉じる線（pen=0）
+      if (result.length > 0) {
+        const lastPoint = result[result.length - 1];
+        const firstPoint = result[0];
+        
+        // 閉じる経路を補間（10点程度）
+        const numInterp = 10;
+        for (let i = 1; i <= numInterp; i++) {
+          const t = i / numInterp;
+          const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
+          const y = lastPoint[1] + (firstPoint[1] - lastPoint[1]) * t;
+          result.push([x, y, 0]);  // pen=0 (off)
+        }
+      }
+      
+      return result;
+    }
+
+    // 2D点群を生成（従来の形式）
+    function generatePoints2d() {
+      const allStrokes = [...strokes];
+      if (currentStroke.length > 0) {
+        allStrokes.push(currentStroke);
+      }
+      
+      const result = [];
+      for (const stroke of allStrokes) {
+        for (const pt of stroke) {
+          result.push([pt[0], pt[1]]);
+        }
+      }
+      return result;
+    }
+
     initCanvas(ctx, canvas);
     initCanvas(rctx, reconCanvas);
+
+    // モード切り替え
+    document.getElementById('multiStrokeMode').addEventListener('change', (e) => {
+      multiStrokeMode = e.target.checked;
+      const modeInfo = document.getElementById('modeInfo');
+      if (multiStrokeMode) {
+        modeInfo.textContent = '複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。';
+      } else {
+        modeInfo.textContent = '一筆書きモード: 描くたびにリセットされます';
+      }
+    });
 
     // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
-      points = [];
-      initCanvas(ctx, canvas);
+      
+      if (!multiStrokeMode) {
+        // 一筆書きモード: リセット
+        strokes = [];
+        currentStroke = [];
+        initCanvas(ctx, canvas);
+      }
+      
+      currentStroke = [];
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      points.push([x, y]);
+      currentStroke.push([x, y]);
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.strokeStyle = 'black';
@@ -240,16 +381,24 @@
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      points.push([x, y]);
+      currentStroke.push([x, y]);
       ctx.lineTo(x, y);
       ctx.stroke();
     });
 
     canvas.addEventListener('mouseup', () => {
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
       drawing = false;
     });
 
     canvas.addEventListener('mouseleave', () => {
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
       drawing = false;
     });
 
@@ -257,13 +406,19 @@
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       drawing = true;
-      points = [];
-      initCanvas(ctx, canvas);
+      
+      if (!multiStrokeMode) {
+        strokes = [];
+        currentStroke = [];
+        initCanvas(ctx, canvas);
+      }
+      
+      currentStroke = [];
       const rect = canvas.getBoundingClientRect();
       const touch = e.touches[0];
       const x = touch.clientX - rect.left;
       const y = touch.clientY - rect.top;
-      points.push([x, y]);
+      currentStroke.push([x, y]);
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.strokeStyle = 'black';
@@ -277,18 +432,56 @@
       const touch = e.touches[0];
       const x = touch.clientX - rect.left;
       const y = touch.clientY - rect.top;
-      points.push([x, y]);
+      currentStroke.push([x, y]);
       ctx.lineTo(x, y);
       ctx.stroke();
     });
 
     canvas.addEventListener('touchend', (e) => {
       e.preventDefault();
+      if (drawing && currentStroke.length > 0) {
+        strokes.push([...currentStroke]);
+        currentStroke = [];
+      }
       drawing = false;
     });
 
-    // キャンバスに点列を描画する関数
-    function drawPoints(context, canvasEl, pts, color = 'red') {
+    // 3D点群を描画する関数（pen値で濃淡を表現、閾値以下は非表示）
+    const PEN_THRESHOLD = 0.5;  // この閾値以下のpen値は線を描画しない
+    
+    function drawPoints3d(context, canvasEl, pts) {
+      initCanvas(context, canvasEl);
+      if (pts.length < 2) return;
+      
+      for (let i = 1; i < pts.length; i++) {
+        const x0 = pts[i-1][0];
+        const y0 = pts[i-1][1];
+        const pen0 = pts[i-1][2];
+        const x1 = pts[i][0];
+        const y1 = pts[i][1];
+        const pen1 = pts[i][2];
+        
+        // pen値の平均を使って描画するかどうかを決定
+        const penAvg = (pen0 + pen1) / 2;
+        
+        // 閾値以下の場合は描画しない
+        if (penAvg < PEN_THRESHOLD) continue;
+        
+        // 閾値以上の場合、閾値からの距離で濃淡を決定
+        // penAvg: 0.5~1.0 → alpha: 0.0~1.0 にマッピング
+        const alpha = (penAvg - PEN_THRESHOLD) / (1 - PEN_THRESHOLD);
+        
+        context.beginPath();
+        context.moveTo(x0, y0);
+        context.lineTo(x1, y1);
+        context.strokeStyle = `rgba(255, 0, 0, ${alpha})`;
+        context.lineWidth = 2;
+        context.stroke();
+      }
+    }
+
+    // 2D点群を描画する関数
+    function drawPoints2d(context, canvasEl, pts, color = 'red') {
       initCanvas(context, canvasEl);
       if (pts.length > 0) {
         context.beginPath();
@@ -302,12 +495,26 @@
       }
     }
 
+    // 点群を描画（3Dか2Dかを自動判定）
+    function drawPoints(context, canvasEl, pts) {
+      if (pts.length === 0) return;
+      
+      // 3D点群かどうかを判定
+      if (pts[0].length === 3) {
+        drawPoints3d(context, canvasEl, pts);
+      } else {
+        drawPoints2d(context, canvasEl, pts);
+      }
+    }
+
     // クリアボタン
     document.getElementById('clearBtn').addEventListener('click', () => {
-      points = [];
+      strokes = [];
+      currentStroke = [];
       animationFrames = [];
       if (animationId) {
         cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
         animationId = null;
       }
       isPlaying = false;
@@ -319,7 +526,10 @@
 
     // フーリエ変換ボタン
     document.getElementById('processBtn').addEventListener('click', () => {
-      if (points.length === 0) {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
         alert("まずはキャンバス上に描いてください");
         return;
       }
@@ -332,15 +542,24 @@
 
       updateStatus('処理中...');
       
+      // 複数ストロークモードの場合は3Dを使用
+      const useMultiStroke = multiStrokeMode && strokes.length > 1;
+      const requestPoints = useMultiStroke ? points3d : points2d;
+      
       fetch('/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: points, K: K })
+        body: JSON.stringify({ 
+          points: requestPoints, 
+          K: K,
+          is3d: useMultiStroke
+        })
       })
       .then(response => response.json())
       .then(data => {
         drawPoints(rctx, reconCanvas, data.points);
-        updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${points.length})`);
+        const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
+        updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${requestPoints.length}${strokeInfo})`);
       })
       .catch(error => {
         console.error("Error:", error);
@@ -351,7 +570,10 @@
 
     // アニメーション生成ボタン
     document.getElementById('animationBtn').addEventListener('click', async () => {
-      if (points.length === 0) {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
         alert("まずはキャンバス上に描いてください");
         return;
       }
@@ -365,6 +587,7 @@
       // 既存のアニメーションを停止
       if (animationId) {
         cancelAnimationFrame(animationId);
+        clearTimeout(animationId);
         animationId = null;
       }
 
@@ -373,10 +596,18 @@
       setProgress(0);
 
       try {
+        // 複数ストロークモードの場合は3Dを使用
+        const useMultiStroke = multiStrokeMode && strokes.length > 1;
+        const requestPoints = useMultiStroke ? points3d : points2d;
+        
         const response = await fetch('/process_animation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ points: points, numFrames: numFrames })
+          body: JSON.stringify({ 
+            points: requestPoints, 
+            numFrames: numFrames,
+            is3d: useMultiStroke
+          })
         });
         
         if (!response.ok) {
@@ -508,7 +739,7 @@
       } catch (error) {
         console.error("Error:", error);
         
-        // WebM非対応の場合はGIF生成のフォールバック（簡易版）
+        // WebM非対応の場合
         alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
         updateStatus('動画生成に失敗しました');
         showProgress(false);

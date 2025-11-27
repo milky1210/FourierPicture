@@ -8,7 +8,7 @@ CORS(app)
 
 
 def reconstruct_fourier(pts, K):
-    """指定されたK個のフーリエ成分で曲線を再構成"""
+    """指定されたK個のフーリエ成分で曲線を再構成（2D版）"""
     z = pts[:, 0] + 1j * pts[:, 1]
     N = len(z)
     
@@ -32,15 +32,58 @@ def reconstruct_fourier(pts, K):
     return [[pt.real, pt.imag] for pt in z_smooth]
 
 
+def reconstruct_fourier_3d(pts, K):
+    """指定されたK個のフーリエ成分で3D点群（x, y, pen）を再構成"""
+    x = pts[:, 0]
+    y = pts[:, 1]
+    pen = pts[:, 2]
+    N = len(x)
+    
+    # 各軸独立にFFT
+    Fx = np.fft.fft(x)
+    Fy = np.fft.fft(y)
+    Fpen = np.fft.fft(pen)
+    freqs = np.fft.fftfreq(N)
+    
+    # 振幅の合計でソート（3軸の振幅を合計）
+    amplitudes = np.abs(Fx) + np.abs(Fy) + np.abs(Fpen)
+    indices_sorted = np.argsort(amplitudes)[::-1]
+    
+    K = min(K, N)
+    selected_indices = indices_sorted[:K]
+    
+    num_output_points = max(N, 200)
+    t_new = np.linspace(0, 1, num_output_points, endpoint=False)
+    
+    # 各軸を再構成
+    x_smooth = np.zeros(num_output_points, dtype=complex)
+    y_smooth = np.zeros(num_output_points, dtype=complex)
+    pen_smooth = np.zeros(num_output_points, dtype=complex)
+    
+    for k in selected_indices:
+        freq = freqs[k] * N
+        exp_term = np.exp(2j * np.pi * freq * t_new)
+        x_smooth += (Fx[k] / N) * exp_term
+        y_smooth += (Fy[k] / N) * exp_term
+        pen_smooth += (Fpen[k] / N) * exp_term
+    
+    # pen値を0-1にクリップ
+    pen_real = np.clip(pen_smooth.real, 0, 1)
+    
+    return [[x_smooth[i].real, y_smooth[i].real, pen_real[i]] for i in range(num_output_points)]
+
+
 @app.route('/process', methods=['POST'])
 def process():
     data = request.get_json()
     pts = np.array(data['points'])
     K = data.get('K', 10)
+    is_3d = data.get('is3d', False)  # 3Dモード（x, y, pen）
     
     print(f"=== フーリエ変換処理開始 ===", flush=True)
     print(f"受信した点の数: {len(pts)}", flush=True)
     print(f"K値: {K}", flush=True)
+    print(f"3Dモード: {is_3d}", flush=True)
     
     if pts.shape[0] == 0:
         print("警告: 点が0個です", flush=True)
@@ -50,7 +93,11 @@ def process():
         print("警告: 点が少なすぎます", flush=True)
         return jsonify({'points': pts.tolist()})
     
-    points_reconstructed = reconstruct_fourier(pts, K)
+    if is_3d:
+        points_reconstructed = reconstruct_fourier_3d(pts, K)
+    else:
+        points_reconstructed = reconstruct_fourier(pts, K)
+    
     print(f"=== フーリエ変換処理完了 ===", flush=True)
     
     return jsonify({'points': points_reconstructed})
@@ -62,10 +109,12 @@ def process_animation():
     data = request.get_json()
     pts = np.array(data['points'])
     num_frames = data.get('numFrames', 30)  # フレーム数
+    is_3d = data.get('is3d', False)  # 3Dモード（x, y, pen）
     
     print(f"=== アニメーション生成開始 ===", flush=True)
     print(f"受信した点の数: {len(pts)}", flush=True)
     print(f"フレーム数: {num_frames}", flush=True)
+    print(f"3Dモード: {is_3d}", flush=True)
     
     if pts.shape[0] == 0:
         return jsonify({'frames': []})
@@ -74,6 +123,9 @@ def process_animation():
         return jsonify({'frames': [{'K': len(pts), 'points': pts.tolist()}]})
     
     N = len(pts)
+    
+    # 再構成関数を選択
+    reconstruct_fn = reconstruct_fourier_3d if is_3d else reconstruct_fourier
     
     # K=2 から N まで指数的にサンプリング
     # 序盤（小さいK）のフレームを多めにするため、累乗を使用
@@ -104,7 +156,7 @@ def process_animation():
     
     frames = []
     for k in k_values:
-        points_reconstructed = reconstruct_fourier(pts, k)
+        points_reconstructed = reconstruct_fn(pts, k)
         frames.append({
             'K': k,
             'points': points_reconstructed,
@@ -112,7 +164,7 @@ def process_animation():
         })
     
     # 最後に元の入力画像（全成分）のフレームを追加
-    final_points = reconstruct_fourier(pts, N)
+    final_points = reconstruct_fn(pts, N)
     frames.append({
         'K': N,
         'points': final_points,
