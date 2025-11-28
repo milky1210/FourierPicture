@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="alternate" hreflang="ja" href="index.html">
   <link rel="alternate" hreflang="en" href="en.html">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -117,10 +118,58 @@
     button.animation:hover {
       background-color: #7B1FA2;
     }
+    button.share {
+      background-color: #FF9800;
+    }
+    button.share:hover {
+      background-color: #F57C00;
+    }
     .button-group {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.7);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 90%;
+      max-height: 90%;
+      overflow: auto;
+      text-align: center;
+    }
+    .modal-content h2 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+    .modal-content canvas {
+      border: 1px solid #ccc;
+      cursor: default;
+    }
+    .modal-buttons {
+      margin-top: 15px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .modal-close {
+      background-color: #666;
+    }
+    .modal-close:hover {
+      background-color: #555;
     }
     .status {
       font-size: 14px;
@@ -169,6 +218,20 @@
     .lang-switch a {
       color: #2196F3;
       text-decoration: none;
+    }
+    .qr-hint {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-top: 8px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .qr-hint.warning {
+      color: #e65100;
+    }
+    .qr-hint.ok {
+      color: #2e7d32;
     }
   </style>
 </head>
@@ -228,7 +291,22 @@
         </div>
         <div class="button-group">
           <button id="downloadOutputBtn" class="secondary">Download Output</button>
+          <button id="shareBtn" class="share" disabled>Create QR Card</button>
         </div>
+        <div id="qrHintText" class="qr-hint"></div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- QR Card Modal -->
+  <div id="shareModal" class="modal-overlay">
+    <div class="modal-content">
+      <h2>📜 Artifact (Permanent Storage Card)</h2>
+      <canvas id="cardCanvas" width="800" height="900"></canvas>
+      <div class="modal-buttons">
+        <button id="downloadCardBtn" class="secondary">Download Card Image</button>
+        <button id="copyUrlBtn" class="secondary">Copy URL</button>
+        <button id="closeModalBtn" class="modal-close">Close</button>
       </div>
     </div>
   </div>
@@ -431,6 +509,527 @@
       
       return frames;
     }
+
+    // ============================================
+    // Data Export/Import Functions
+    // QR code generation uses qrcode-generator CDN library
+    // ============================================
+    
+    // Round number to specified decimals
+    function roundNumber(num, decimals) {
+      const factor = Math.pow(10, decimals);
+      return Math.round(num * factor) / factor;
+    }
+    
+    // Get Fourier coefficients (limited to K for sharing)
+    function getFourierCoefficients(points, K, is3d) {
+      const N = points.length;
+      if (N === 0) return null;
+      
+      const actualK = Math.min(K, N);
+      
+      if (is3d) {
+        const x = points.map(p => new Complex(p[0], 0));
+        const y = points.map(p => new Complex(p[1], 0));
+        const pen = points.map(p => new Complex(p[2], 0));
+        
+        const Fx = dft(x);
+        const Fy = dft(y);
+        const Fpen = dft(pen);
+        
+        // Sort by amplitude
+        const amplitudes = [];
+        for (let i = 0; i < N; i++) {
+          amplitudes.push(Fx[i].abs() + Fy[i].abs() + Fpen[i].abs());
+        }
+        const indices = Array.from({ length: N }, (_, i) => i);
+        indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+        const selectedIndices = indices.slice(0, actualK);
+        
+        // Coefficient data (Re, Im alternating)
+        const coeffX = [];
+        const coeffY = [];
+        const coeffPen = [];
+        
+        for (const k of selectedIndices) {
+          coeffX.push(roundNumber(Fx[k].re, 3), roundNumber(Fx[k].im, 3));
+          coeffY.push(roundNumber(Fy[k].re, 3), roundNumber(Fy[k].im, 3));
+          coeffPen.push(roundNumber(Fpen[k].re, 3), roundNumber(Fpen[k].im, 3));
+        }
+        
+        return {
+          f: "v(t)=Sum(Re(Fk*exp(i*2*pi*k*t)))",
+          n: N,
+          k: selectedIndices.map(i => i),
+          d: [coeffX, coeffY, coeffPen]
+        };
+      } else {
+        const z = points.map(p => new Complex(p[0], p[1]));
+        const F = dft(z);
+        
+        const amplitudes = F.map(c => c.abs());
+        const indices = Array.from({ length: N }, (_, i) => i);
+        indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+        const selectedIndices = indices.slice(0, actualK);
+        
+        const coeffZ = [];
+        for (const k of selectedIndices) {
+          coeffZ.push(roundNumber(F[k].re, 3), roundNumber(F[k].im, 3));
+        }
+        
+        return {
+          f: "z(t)=Sum(Fk*exp(i*2*pi*k*t))",
+          n: N,
+          k: selectedIndices.map(i => i),
+          d: [coeffZ]
+        };
+      }
+    }
+    
+    // Reconstruct from coefficients
+    function reconstructFromCoefficients(data) {
+      const N = data.n;
+      const K = data.k;
+      const is3d = data.d.length === 3;
+      const freqs = fftfreq(N);
+      
+      const numOutputPoints = Math.max(N, 200);
+      const result = [];
+      
+      if (is3d) {
+        const coeffX = data.d[0];
+        const coeffY = data.d[1];
+        const coeffPen = data.d[2];
+        
+        for (let i = 0; i < numOutputPoints; i++) {
+          const t = i / numOutputPoints;
+          let sumX = new Complex(0, 0);
+          let sumY = new Complex(0, 0);
+          let sumPen = new Complex(0, 0);
+          
+          for (let j = 0; j < K.length; j++) {
+            const k = K[j];
+            const freq = freqs[k] * N;
+            const angle = 2 * Math.PI * freq * t;
+            const exp = new Complex(Math.cos(angle), Math.sin(angle));
+            
+            const Fxk = new Complex(coeffX[j * 2], coeffX[j * 2 + 1]);
+            const Fyk = new Complex(coeffY[j * 2], coeffY[j * 2 + 1]);
+            const Fpenk = new Complex(coeffPen[j * 2], coeffPen[j * 2 + 1]);
+            
+            sumX = sumX.add(Fxk.scale(1 / N).mul(exp));
+            sumY = sumY.add(Fyk.scale(1 / N).mul(exp));
+            sumPen = sumPen.add(Fpenk.scale(1 / N).mul(exp));
+          }
+          
+          const penVal = Math.max(0, Math.min(1, sumPen.re));
+          result.push([sumX.re, sumY.re, penVal]);
+        }
+      } else {
+        const coeffZ = data.d[0];
+        
+        for (let i = 0; i < numOutputPoints; i++) {
+          const t = i / numOutputPoints;
+          let sum = new Complex(0, 0);
+          
+          for (let j = 0; j < K.length; j++) {
+            const k = K[j];
+            const freq = freqs[k] * N;
+            const angle = 2 * Math.PI * freq * t;
+            const exp = new Complex(Math.cos(angle), Math.sin(angle));
+            
+            const Fk = new Complex(coeffZ[j * 2], coeffZ[j * 2 + 1]);
+            sum = sum.add(Fk.scale(1 / N).mul(exp));
+          }
+          
+          result.push([sum.re, sum.im]);
+        }
+      }
+      
+      return result;
+    }
+    
+    // Efficient binary encoding (quantize coefficients to 16-bit integers)
+    function encodeDataCompact(data) {
+      const n = data.n;
+      const k = data.k;
+      const d = data.d;
+      const is3d = d.length === 3;
+      
+      // Header: version(1byte) + flags(1byte) + N(2bytes) + K count(2bytes)
+      const kCount = k.length;
+      const headerSize = 6;
+      
+      // Bytes per coefficient: index(2bytes) + Re(2bytes) + Im(2bytes) = 6bytes per freq
+      // 3D: 6bytes × 3 axes = 18bytes per freq, 2D: 6bytes per freq
+      const coeffBytesPerFreq = is3d ? 18 : 6;
+      const totalBytes = headerSize + kCount * (2 + coeffBytesPerFreq);
+      
+      const buffer = new ArrayBuffer(totalBytes);
+      const view = new DataView(buffer);
+      
+      let offset = 0;
+      view.setUint8(offset++, 2); // version 2 (compact)
+      view.setUint8(offset++, is3d ? 1 : 0); // flags
+      view.setUint16(offset, n, true); offset += 2;
+      view.setUint16(offset, kCount, true); offset += 2;
+      
+      // Calculate scale (find max value of coefficients)
+      let maxVal = 0;
+      for (const arr of d) {
+        for (const v of arr) {
+          maxVal = Math.max(maxVal, Math.abs(v));
+        }
+      }
+      const scale = maxVal > 0 ? 32000 / maxVal : 1;
+      
+      // Save scale value (add 4 bytes as float32)
+      const newTotalBytes = totalBytes + 4;
+      const newBuffer = new ArrayBuffer(newTotalBytes);
+      const newView = new DataView(newBuffer);
+      
+      // Copy header
+      offset = 0;
+      newView.setUint8(offset++, 2);
+      newView.setUint8(offset++, is3d ? 1 : 0);
+      newView.setUint16(offset, n, true); offset += 2;
+      newView.setUint16(offset, kCount, true); offset += 2;
+      newView.setFloat32(offset, scale, true); offset += 4;
+      
+      // Coefficient data
+      for (let i = 0; i < kCount; i++) {
+        newView.setUint16(offset, k[i], true); offset += 2;
+        
+        for (let axis = 0; axis < d.length; axis++) {
+          const re = Math.round(d[axis][i * 2] * scale);
+          const im = Math.round(d[axis][i * 2 + 1] * scale);
+          newView.setInt16(offset, re, true); offset += 2;
+          newView.setInt16(offset, im, true); offset += 2;
+        }
+      }
+      
+      // Convert to Uint8Array and Base64 encode
+      const bytes = new Uint8Array(newBuffer);
+      const binaryStr = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+      return btoa(binaryStr);
+    }
+    
+    // Decode compact data
+    function decodeDataCompact(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const view = new DataView(bytes.buffer);
+        
+        let offset = 0;
+        const version = view.getUint8(offset++);
+        const flags = view.getUint8(offset++);
+        const n = view.getUint16(offset, true); offset += 2;
+        const kCount = view.getUint16(offset, true); offset += 2;
+        const scale = view.getFloat32(offset, true); offset += 4;
+        
+        const is3d = (flags & 1) === 1;
+        const k = [];
+        const d = is3d ? [[], [], []] : [[]];
+        
+        for (let i = 0; i < kCount; i++) {
+          k.push(view.getUint16(offset, true)); offset += 2;
+          
+          for (let axis = 0; axis < d.length; axis++) {
+            const re = view.getInt16(offset, true) / scale; offset += 2;
+            const im = view.getInt16(offset, true) / scale; offset += 2;
+            d[axis].push(re, im);
+          }
+        }
+        
+        return { n, k, d };
+      } catch (e) {
+        console.error('Failed to decode compact data:', e);
+        return null;
+      }
+    }
+    
+    // Encode data to Base64 (legacy format, kept for compatibility)
+    function encodeDataToBase64(data) {
+      const jsonStr = JSON.stringify(data);
+      // UTF-8 compatible Base64 encoding
+      const utf8Bytes = new TextEncoder().encode(jsonStr);
+      const binaryStr = Array.from(utf8Bytes, byte => String.fromCharCode(byte)).join('');
+      return btoa(binaryStr);
+    }
+    
+    // Decode data from Base64 (supports both formats)
+    function decodeDataFromBase64(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        
+        // Version check (new format has version=2)
+        if (bytes[0] === 2) {
+          return decodeDataCompact(base64Str);
+        }
+        
+        // Legacy format (JSON)
+        const jsonStr = new TextDecoder().decode(bytes);
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error('Failed to decode data:', e);
+        return null;
+      }
+    }
+    
+    // Decode data from Base64 (supports multiple formats)
+    function decodeDataFromBase64(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        
+        // Check for new format (ASCII metadata + binary)
+        // First 2 bytes = ASCII data length
+        if (bytes.length > 2) {
+          const asciiLen = new DataView(bytes.buffer).getUint16(0, true);
+          if (asciiLen < bytes.length && asciiLen < 1000) {
+            try {
+              const asciiPart = new TextDecoder().decode(bytes.slice(2, 2 + asciiLen));
+              if (asciiPart.includes("UNIVERSAL DECODER")) {
+                // New format detected - decode binary part
+                const binaryPart = bytes.slice(2 + asciiLen);
+                const view = new DataView(binaryPart.buffer, binaryPart.byteOffset);
+                let offset = 0;
+                
+                // Compact format decode
+                const version = view.getUint8(offset++);
+                if (version === 2) {
+                  const flags = view.getUint8(offset++);
+                  const n = view.getUint16(offset, true); offset += 2;
+                  const kCount = view.getUint16(offset, true); offset += 2;
+                  const scale = view.getFloat32(offset, true); offset += 4;
+                  
+                  const is3d = (flags & 1) === 1;
+                  const k = [];
+                  const d = is3d ? [[], [], []] : [[]];
+                  
+                  for (let i = 0; i < kCount; i++) {
+                    k.push(view.getUint16(offset, true)); offset += 2;
+                    
+                    for (let axis = 0; axis < d.length; axis++) {
+                      const re = view.getInt16(offset, true) / scale; offset += 2;
+                      const im = view.getInt16(offset, true) / scale; offset += 2;
+                      d[axis].push(re, im);
+                    }
+                  }
+                  
+                  return { n, k, d };
+                }
+              }
+            } catch (e) {
+              // ASCII parsing failed - try next method
+            }
+          }
+        }
+        
+        // Check for compact format (version=2)
+        if (bytes[0] === 2) {
+          return decodeDataCompact(base64Str);
+        }
+        
+        // Legacy format (JSON)
+        const jsonStr = new TextDecoder().decode(bytes);
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error('Failed to decode data:', e);
+        return null;
+      }
+    }
+    
+    // Generate share URL (with ASCII decoder metadata + compact binary)
+    function generateShareUrl(coefficients) {
+      const encoded = encodeDataCompact(coefficients);
+      
+      // Embed decoder method in QR data as ASCII text
+      // UNIVERSAL DECODER header + binary data
+      const decoderInfo = "[UNIVERSAL DECODER: FOURIER STROKE]\n" +
+                         "Formula: v(t)=Sum(Re(F[k]*exp(i*2*pi*k*t)))\n" +
+                         "Range: t=0.0...1.0\n" +
+                         "Target: X,Y,Pen axes independently\n" +
+                         "Draw: Plot(x(t),y(t)) where pen(t)>0.5\n" +
+                         "Data:";
+      
+      // Combine ASCII data + binary data as Base64
+      const asciiBytes = new TextEncoder().encode(decoderInfo);
+      const binaryBytes = new Uint8Array(atob(encoded).split('').map(c => c.charCodeAt(0)));
+      
+      // Combined: ASCII data length(2bytes) + ASCII data + binary data
+      const combined = new ArrayBuffer(2 + asciiBytes.length + binaryBytes.length);
+      const combinedView = new DataView(combined);
+      
+      combinedView.setUint16(0, asciiBytes.length, true);
+      
+      // Copy ASCII and binary data
+      const combinedBytes = new Uint8Array(combined);
+      combinedBytes.set(asciiBytes, 2);
+      combinedBytes.set(binaryBytes, 2 + asciiBytes.length);
+      
+      // Base64 encode
+      const finalEncoded = btoa(String.fromCharCode(...combinedBytes));
+      const baseUrl = window.location.origin + window.location.pathname;
+      return baseUrl + '?d=' + encodeURIComponent(finalEncoded);
+    }
+    
+    // Load data from URL params
+    function loadFromUrlParams() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataParam = urlParams.get('d');
+      
+      if (dataParam) {
+        try {
+          const decoded = decodeDataFromBase64(decodeURIComponent(dataParam));
+          if (decoded && decoded.d && decoded.n && decoded.k) {
+            return decoded;
+          }
+        } catch (e) {
+          console.error('Failed to load data from URL:', e);
+        }
+      }
+      return null;
+    }
+    
+    // QR version capacity table (alphanumeric capacity for error correction level M)
+    const QR_VERSION_CAPACITY = [
+      { version: 1, capacity: 20 },
+      { version: 2, capacity: 38 },
+      { version: 3, capacity: 61 },
+      { version: 4, capacity: 90 },
+      { version: 5, capacity: 122 },
+      { version: 6, capacity: 154 },
+      { version: 7, capacity: 178 },
+      { version: 8, capacity: 221 },
+      { version: 9, capacity: 262 },
+      { version: 10, capacity: 311 },
+      { version: 15, capacity: 586 },
+      { version: 20, capacity: 969 },
+      { version: 25, capacity: 1370 },
+      { version: 30, capacity: 1852 },
+      { version: 35, capacity: 2324 },
+      { version: 40, capacity: 4296 }
+    ];
+    
+    // Estimate URL length from K value (compact binary format)
+    function estimateUrlLength(k, is3d = true) {
+      // Compact format: header 10bytes + K * (2 + 4*axes) bytes
+      // 3D: 10 + K * (2 + 12) = 10 + 14K bytes
+      // 2D: 10 + K * (2 + 4) = 10 + 6K bytes
+      const binarySize = is3d ? (10 + k * 14) : (10 + k * 6);
+      // Base64 is ~1.37x larger, URL encoding adds a bit more
+      const base64Size = Math.ceil(binarySize * 1.37);
+      const baseUrlSize = 80; // base URL + parameter name
+      return baseUrlSize + base64Size;
+    }
+    
+    // Get QR code info for K value
+    function getQRInfoForK(k, is3d = true) {
+      const estimatedLength = estimateUrlLength(k, is3d);
+      
+      // Max versions for easy smartphone scanning
+      const easyReadMaxVersion = 10; // Version 10 or below is easy to scan
+      const possibleMaxVersion = 25; // Version 25 or below is possible with most apps
+      
+      let recommendedVersion = null;
+      let isEasyRead = false;
+      let isPossible = false;
+      
+      for (const info of QR_VERSION_CAPACITY) {
+        if (estimatedLength <= info.capacity) {
+          recommendedVersion = info.version;
+          isEasyRead = info.version <= easyReadMaxVersion;
+          isPossible = info.version <= possibleMaxVersion;
+          break;
+        }
+      }
+      
+      return {
+        estimatedLength,
+        recommendedVersion,
+        isEasyRead,
+        isPossible,
+        maxEasyK: findMaxKForVersion(easyReadMaxVersion, is3d),
+        maxPossibleK: findMaxKForVersion(possibleMaxVersion, is3d)
+      };
+    }
+    
+    // Calculate max K for a given version
+    function findMaxKForVersion(maxVersion, is3d = true) {
+      const capacity = QR_VERSION_CAPACITY.find(v => v.version >= maxVersion)?.capacity || 4296;
+      // Reverse: capacity ≈ 80 + 1.37 * (10 + bytesPerK * k)
+      // 3D: bytesPerK = 14, 2D: bytesPerK = 6
+      const bytesPerK = is3d ? 14 : 6;
+      const maxK = Math.floor(((capacity - 80) / 1.37 - 10) / bytesPerK);
+      return Math.max(1, maxK);
+    }
+    
+    // Generate QR code and render to canvas
+    function generateQRCode(url, targetCanvas, baseCellSize) {
+      try {
+        const dataLength = url.length;
+        
+        // Adjust error correction and cell size based on data length
+        let errorCorrectionLevel = 'M';
+        let cellSize = baseCellSize;
+        
+        // For longer data, adjust cell size for better readability
+        if (dataLength > 500) {
+          cellSize = Math.max(4, baseCellSize - 1);
+        }
+        if (dataLength > 1000) {
+          cellSize = Math.max(3, baseCellSize - 2);
+          errorCorrectionLevel = 'L'; // Lower error correction for capacity
+        }
+        
+        const qr = qrcode(0, errorCorrectionLevel);
+        qr.addData(url);
+        qr.make();
+        
+        const ctx = targetCanvas.getContext('2d');
+        const moduleCount = qr.getModuleCount();
+        const margin = cellSize * 2;
+        const size = moduleCount * cellSize + margin * 2;
+        
+        targetCanvas.width = size;
+        targetCanvas.height = size;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        
+        for (let row = 0; row < moduleCount; row++) {
+          for (let col = 0; col < moduleCount; col++) {
+            ctx.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+            ctx.fillRect(
+              col * cellSize + margin,
+              row * cellSize + margin,
+              cellSize,
+              cellSize
+            );
+          }
+        }
+        
+        return { width: size, height: size, version: Math.ceil((moduleCount - 17) / 4), moduleCount };
+      } catch (e) {
+        console.error('QR code generation failed:', e);
+        return null;
+      }
+    }
+    
+    // Current coefficient data (for sharing)
+    let currentCoefficients = null;
 
     // ============================================
     // UI
@@ -723,6 +1322,25 @@
       }
     }
 
+    // Update QR hint display (called after Fourier transform)
+    function updateQRHint() {
+      const k = parseInt(document.getElementById('kValue').value) || 10;
+      const is3d = multiStrokeMode;
+      const info = getQRInfoForK(k, is3d);
+      const hintText = document.getElementById('qrHintText');
+      
+      if (info.isEasyRead) {
+        hintText.className = 'qr-hint ok';
+        hintText.textContent = `💡 K=${k}: QR scan optimal (Ver.${info.recommendedVersion})`;
+      } else if (info.isPossible) {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QR scannable. K≤${info.maxEasyK} more reliable`;
+      } else {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QR large. K≤${info.maxPossibleK} recommended`;
+      }
+    }
+
     document.getElementById('clearBtn').addEventListener('click', () => {
       strokes = [];
       currentStroke = [];
@@ -779,6 +1397,9 @@
           drawPoints(rctx, reconCanvas, result);
           const strokeInfo = useMultiStroke ? `, Strokes: ${strokes.length}` : '';
           updateStatus(`Transform complete (K=${K}, Points: ${inputPoints.length}${strokeInfo})`);
+          
+          // Update QR hint
+          updateQRHint();
         } catch (error) {
           console.error("Error:", error);
           alert("An error occurred: " + error.message);
@@ -953,6 +1574,419 @@
       link.download = 'fourier_image.png';
       link.href = reconCanvas.toDataURL('image/png');
       link.click();
+    });
+
+    // ============================================
+    // QR Card Generation & Sharing
+    // ============================================
+    
+    const shareModal = document.getElementById('shareModal');
+    const cardCanvas = document.getElementById('cardCanvas');
+    const cardCtx = cardCanvas.getContext('2d');
+    let currentShareUrl = '';
+    
+    // Generate artifact card image
+    function generateArtifactCard(artCanvas, coefficients) {
+      const shareUrl = generateShareUrl(coefficients);
+      currentShareUrl = shareUrl;
+      
+      // Card size settings
+      const cardWidth = 800;
+      const cardHeight = 1000;
+      const margin = 30;
+      const artSize = 500;
+      const qrSize = 180;
+      
+      cardCanvas.width = cardWidth;
+      cardCanvas.height = cardHeight;
+      
+      // Background
+      cardCtx.fillStyle = '#ffffff';
+      cardCtx.fillRect(0, 0, cardWidth, cardHeight);
+      
+      // Title
+      cardCtx.fillStyle = '#333333';
+      cardCtx.font = 'bold 24px Arial, sans-serif';
+      cardCtx.textAlign = 'center';
+      cardCtx.fillText('Fourier Art Artifact', cardWidth / 2, margin + 25);
+      
+      // Place art image in center
+      const artX = (cardWidth - artSize) / 2;
+      const artY = margin + 50;
+      
+      // Border
+      cardCtx.strokeStyle = '#333333';
+      cardCtx.lineWidth = 2;
+      cardCtx.strokeRect(artX - 2, artY - 2, artSize + 4, artSize * (artCanvas.height / artCanvas.width) + 4);
+      
+      // Draw art image
+      const artHeight = artSize * (artCanvas.height / artCanvas.width);
+      cardCtx.drawImage(artCanvas, artX, artY, artSize, artHeight);
+      
+      // Generate QR code
+      const tempQrCanvas = document.createElement('canvas');
+      const qrResult = generateQRCode(shareUrl, tempQrCanvas, 4);
+      
+      if (qrResult) {
+        // Place QR code at bottom right
+        const qrX = cardWidth - margin - qrSize;
+        const qrY = artY + artHeight + 30;
+        cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrSize, qrSize);
+        
+        // QR label
+        cardCtx.fillStyle = '#666666';
+        cardCtx.font = '12px Arial, sans-serif';
+        cardCtx.textAlign = 'center';
+        cardCtx.fillText('Scan to restore', qrX + qrSize / 2, qrY + qrSize + 15);
+      }
+      
+      // Rosetta Text (formula info for restoration)
+      const rosettaY = artY + artHeight + 50;
+      const rosettaX = margin;
+      
+      cardCtx.fillStyle = '#333333';
+      cardCtx.font = 'bold 14px monospace';
+      cardCtx.textAlign = 'left';
+      cardCtx.fillText('=== ROSETTA STONE FOR FUTURE ===', rosettaX, rosettaY);
+      
+      cardCtx.font = '12px monospace';
+      cardCtx.fillStyle = '#555555';
+      
+      const rosettaLines = [
+        'Format: IDFT (Real part only) of X, Y, Pen',
+        'Formula: v(t) = (1/N) * Σ Re(Fk * exp(i*2*π*k*t))',
+        '',
+        'Data structure: { n: N, k: [indices], d: [coeffs] }',
+        '  - N: Original point count',
+        '  - k: Selected frequency indices (sorted by amplitude)',
+        '  - d: [X coeffs, Y coeffs, Pen coeffs]',
+        '       Each: [Re0, Im0, Re1, Im1, ...]',
+        '',
+        'To reconstruct:',
+        '  1. Decode Base64 from URL parameter "d"',
+        '  2. Parse JSON to get {n, k, d}',
+        '  3. For t ∈ [0,1), compute:',
+        '     x(t) = Σ Re(Fxk * exp(i*2*π*fk*N*t)) / N',
+        '     y(t) = Σ Re(Fyk * exp(i*2*π*fk*N*t)) / N',
+        '     pen(t) = clamp(Σ Re(Fpenk * ...) / N, 0, 1)',
+        '  4. Draw line when pen(t) > 0.5',
+        '',
+        `K = ${coefficients.k.length}, N = ${coefficients.n}`
+      ];
+      
+      let lineY = rosettaY + 20;
+      for (const line of rosettaLines) {
+        cardCtx.fillText(line, rosettaX, lineY);
+        lineY += 16;
+      }
+      
+      // Footer
+      cardCtx.fillStyle = '#888888';
+      cardCtx.font = '10px Arial, sans-serif';
+      cardCtx.textAlign = 'center';
+      cardCtx.fillText('Generated by FourierPicture | github.com/milky1210/FourierPicture', cardWidth / 2, cardHeight - 15);
+      cardCtx.fillText(`Created: ${new Date().toISOString().split('T')[0]}`, cardWidth / 2, cardHeight - 30);
+      
+      return shareUrl;
+    }
+    
+    // Create QR Card button
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      if (!currentCoefficients) {
+        alert('Please run the Fourier transform first');
+        return;
+      }
+      
+      generateArtifactCard(reconCanvas, currentCoefficients);
+      shareModal.style.display = 'flex';
+    });
+    
+    // Download card
+    document.getElementById('downloadCardBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'fourier_artifact_card.png';
+      link.href = cardCanvas.toDataURL('image/png');
+      link.click();
+    });
+    
+    // Copy URL
+    document.getElementById('copyUrlBtn').addEventListener('click', async () => {
+      if (currentShareUrl) {
+        try {
+          await navigator.clipboard.writeText(currentShareUrl);
+          alert('URL copied to clipboard');
+        } catch (e) {
+          // Fallback
+          const textArea = document.createElement('textarea');
+          textArea.value = currentShareUrl;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          alert('URL copied to clipboard');
+        }
+      }
+    });
+    
+    // Close modal
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      shareModal.style.display = 'none';
+    });
+    
+    // Close modal on outside click
+    shareModal.addEventListener('click', (e) => {
+      if (e.target === shareModal) {
+        shareModal.style.display = 'none';
+      }
+    });
+    
+    // ============================================
+    // URL Parameter Restoration (Viewer Mode)
+    // ============================================
+    
+    // Generate animation frames from shared data
+    function generateAnimationFramesFromCoefficients(data, numFrames) {
+      const K = data.k.length;
+      const is3d = data.d.length === 3;
+      
+      if (K === 0) return [];
+      if (K < 2) {
+        const points = reconstructFromCoefficients(data);
+        return [{ K: K, points: points, isFinal: true }];
+      }
+      
+      const kMin = 2;
+      const kMax = K;
+      
+      const kValuesSet = new Set();
+      for (let i = 0; i < numFrames; i++) {
+        let k;
+        if (numFrames === 1) {
+          k = kMax;
+        } else {
+          const t = i / (numFrames - 1);
+          const tAdjusted = Math.pow(t, 0.6);
+          const logK = Math.log(kMin) + (Math.log(kMax) - Math.log(kMin)) * tAdjusted;
+          k = Math.round(Math.exp(logK));
+        }
+        k = Math.max(kMin, Math.min(k, kMax));
+        kValuesSet.add(k);
+      }
+      
+      const kValues = Array.from(kValuesSet).sort((a, b) => a - b);
+      
+      const frames = [];
+      for (const k of kValues) {
+        // Use only k coefficients
+        const partialData = {
+          f: data.f,
+          n: data.n,
+          k: data.k.slice(0, k),
+          d: data.d.map(arr => arr.slice(0, k * 2))
+        };
+        const reconstructed = reconstructFromCoefficients(partialData);
+        frames.push({
+          K: k,
+          points: reconstructed,
+          isFinal: false
+        });
+      }
+      
+      // Final frame (all coefficients)
+      const finalPoints = reconstructFromCoefficients(data);
+      frames.push({
+        K: K,
+        points: finalPoints,
+        isFinal: true
+      });
+      
+      return frames;
+    }
+    
+    // Initialize viewer mode
+    function initViewerMode(data) {
+      const is3d = data.d.length === 3;
+      
+      // Hide left panel, expand right panel
+      document.querySelector('.left-panel').style.display = 'none';
+      document.querySelector('.right-panel').style.flex = '1';
+      document.querySelector('.right-panel .panel-title').textContent = 'Shared Fourier Art';
+      
+      // Change button visibility
+      document.getElementById('shareBtn').style.display = 'none';
+      
+      // Add new buttons
+      const buttonGroup = document.querySelector('.right-panel .button-group');
+      
+      // Animation play button
+      const playBtn = document.createElement('button');
+      playBtn.id = 'viewerPlayBtn';
+      playBtn.className = 'animation';
+      playBtn.textContent = 'Play Animation';
+      buttonGroup.appendChild(playBtn);
+      
+      // Video download button
+      const videoBtn = document.createElement('button');
+      videoBtn.id = 'viewerVideoBtn';
+      videoBtn.className = 'animation';
+      videoBtn.textContent = 'Download Video';
+      videoBtn.disabled = true;
+      buttonGroup.appendChild(videoBtn);
+      
+      // New creation link
+      const newBtn = document.createElement('button');
+      newBtn.className = 'secondary';
+      newBtn.textContent = 'Create New';
+      newBtn.addEventListener('click', () => {
+        window.location.href = window.location.pathname;
+      });
+      buttonGroup.appendChild(newBtn);
+      
+      // Initial drawing
+      const points = reconstructFromCoefficients(data);
+      drawPoints(rctx, reconCanvas, points);
+      updateStatus(`Restored (K=${data.k.length}, N=${data.n})`);
+      
+      // Save coefficient data (viewer mode - not used for sharing)
+      currentCoefficients = data;
+      
+      // Animation play
+      playBtn.addEventListener('click', () => {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          clearTimeout(animationId);
+          animationId = null;
+        }
+        
+        animationFrames = generateAnimationFramesFromCoefficients(data, 30);
+        
+        if (animationFrames.length === 0) {
+          updateStatus('No animation data');
+          return;
+        }
+        
+        currentFrameIndex = 0;
+        isPlaying = true;
+        videoBtn.disabled = false;
+        
+        showProgress(true);
+        updateStatus(`Playing animation (${animationFrames.length} frames)`);
+        playAnimation();
+      });
+      
+      // Video download
+      videoBtn.addEventListener('click', async () => {
+        if (animationFrames.length === 0) {
+          // Generate if not yet generated
+          animationFrames = generateAnimationFramesFromCoefficients(data, 30);
+        }
+        
+        if (animationFrames.length === 0) {
+          alert('No animation data');
+          return;
+        }
+        
+        isPlaying = false;
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          clearTimeout(animationId);
+          animationId = null;
+        }
+        
+        updateStatus('Generating video...');
+        showProgress(true);
+        setProgress(0);
+        
+        try {
+          const stream = reconCanvas.captureStream(30);
+          const mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: 5000000
+          });
+          
+          const chunks = [];
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunks.push(e.data);
+            }
+          };
+          
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'fourier_animation.webm';
+            link.click();
+            URL.revokeObjectURL(url);
+            
+            updateStatus('Video download complete');
+            showProgress(false);
+            
+            // Show final frame
+            const finalPoints = reconstructFromCoefficients(data);
+            drawPoints(rctx, reconCanvas, finalPoints);
+          };
+          
+          mediaRecorder.start();
+          
+          for (let i = 0; i < animationFrames.length; i++) {
+            const frame = animationFrames[i];
+            drawPoints(rctx, reconCanvas, frame.points);
+            setProgress(((i + 1) / animationFrames.length) * 100);
+            
+            const delay = frame.isFinal ? 3000 : 100;
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          mediaRecorder.stop();
+          
+        } catch (error) {
+          console.error("Error:", error);
+          alert("Error generating video. Your browser may not support WebM format.");
+          updateStatus('Video generation failed');
+          showProgress(false);
+        }
+      });
+    }
+    
+    // ============================================
+    // Initialization
+    // ============================================
+    
+    // Check URL params on page load
+    window.addEventListener('load', () => {
+      const sharedData = loadFromUrlParams();
+      
+      if (sharedData) {
+        // Start in viewer mode
+        initViewerMode(sharedData);
+      } else {
+        // Normal mode - share button enabled after transform
+        document.getElementById('shareBtn').disabled = true;
+      }
+    });
+    
+    // Save coefficients on Fourier transform
+    document.getElementById('processBtn').addEventListener('click', () => {
+      // Calculate coefficients after transform
+      setTimeout(() => {
+        const points3d = generatePoints3d();
+        const points2d = generatePoints2d();
+        
+        if (points2d.length > 0) {
+          const K = parseInt(document.getElementById('kValue').value);
+          const useMultiStroke = multiStrokeMode;
+          const inputPoints = useMultiStroke ? points3d : points2d;
+          
+          // Get coefficients for sharing (limited to K, max 50)
+          const shareK = Math.min(K, 50);
+          currentCoefficients = getFourierCoefficients(inputPoints, shareK, useMultiStroke);
+          
+          // Enable share button
+          document.getElementById('shareBtn').disabled = false;
+        }
+      }, 100);
     });
   </script>
 </body>
