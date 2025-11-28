@@ -229,6 +229,20 @@
       color: #2196F3;
       text-decoration: none;
     }
+    .qr-hint {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-top: 8px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .qr-hint.warning {
+      color: #e65100;
+    }
+    .qr-hint.ok {
+      color: #2e7d32;
+    }
   </style>
 </head>
 <body>
@@ -289,6 +303,7 @@
           <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
           <button id="shareBtn" class="share" disabled>QRカード作成</button>
         </div>
+        <div id="qrHintText" class="qr-hint"></div>
       </div>
     </div>
   </div>
@@ -665,7 +680,110 @@
       return result;
     }
     
-    // データをBase64エンコード
+    // 効率的なバイナリエンコード（係数を16bit整数に量子化）
+    function encodeDataCompact(data) {
+      const n = data.n;
+      const k = data.k;
+      const d = data.d;
+      const is3d = d.length === 3;
+      
+      // ヘッダー: バージョン(1byte) + フラグ(1byte) + N(2bytes) + K数(2bytes)
+      const kCount = k.length;
+      const headerSize = 6;
+      
+      // 各係数のバイト数: インデックス(2bytes) + Re(2bytes) + Im(2bytes) = 6bytes per freq
+      // 3D: 6bytes × 3軸 = 18bytes per freq, 2D: 6bytes per freq
+      const coeffBytesPerFreq = is3d ? 18 : 6;
+      const totalBytes = headerSize + kCount * (2 + coeffBytesPerFreq);
+      
+      const buffer = new ArrayBuffer(totalBytes);
+      const view = new DataView(buffer);
+      
+      let offset = 0;
+      view.setUint8(offset++, 2); // version 2 (compact)
+      view.setUint8(offset++, is3d ? 1 : 0); // flags
+      view.setUint16(offset, n, true); offset += 2;
+      view.setUint16(offset, kCount, true); offset += 2;
+      
+      // スケールを計算（係数の最大値を求める）
+      let maxVal = 0;
+      for (const arr of d) {
+        for (const v of arr) {
+          maxVal = Math.max(maxVal, Math.abs(v));
+        }
+      }
+      const scale = maxVal > 0 ? 32000 / maxVal : 1;
+      
+      // スケール値を保存（float32として4bytes追加）
+      const newTotalBytes = totalBytes + 4;
+      const newBuffer = new ArrayBuffer(newTotalBytes);
+      const newView = new DataView(newBuffer);
+      
+      // ヘッダーをコピー
+      offset = 0;
+      newView.setUint8(offset++, 2);
+      newView.setUint8(offset++, is3d ? 1 : 0);
+      newView.setUint16(offset, n, true); offset += 2;
+      newView.setUint16(offset, kCount, true); offset += 2;
+      newView.setFloat32(offset, scale, true); offset += 4;
+      
+      // 係数データ
+      for (let i = 0; i < kCount; i++) {
+        newView.setUint16(offset, k[i], true); offset += 2;
+        
+        for (let axis = 0; axis < d.length; axis++) {
+          const re = Math.round(d[axis][i * 2] * scale);
+          const im = Math.round(d[axis][i * 2 + 1] * scale);
+          newView.setInt16(offset, re, true); offset += 2;
+          newView.setInt16(offset, im, true); offset += 2;
+        }
+      }
+      
+      // Uint8Arrayに変換してBase64エンコード
+      const bytes = new Uint8Array(newBuffer);
+      const binaryStr = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+      return btoa(binaryStr);
+    }
+    
+    // コンパクトデータをデコード
+    function decodeDataCompact(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const view = new DataView(bytes.buffer);
+        
+        let offset = 0;
+        const version = view.getUint8(offset++);
+        const flags = view.getUint8(offset++);
+        const n = view.getUint16(offset, true); offset += 2;
+        const kCount = view.getUint16(offset, true); offset += 2;
+        const scale = view.getFloat32(offset, true); offset += 4;
+        
+        const is3d = (flags & 1) === 1;
+        const k = [];
+        const d = is3d ? [[], [], []] : [[]];
+        
+        for (let i = 0; i < kCount; i++) {
+          k.push(view.getUint16(offset, true)); offset += 2;
+          
+          for (let axis = 0; axis < d.length; axis++) {
+            const re = view.getInt16(offset, true) / scale; offset += 2;
+            const im = view.getInt16(offset, true) / scale; offset += 2;
+            d[axis].push(re, im);
+          }
+        }
+        
+        return { n, k, d };
+      } catch (e) {
+        console.error('Failed to decode compact data:', e);
+        return null;
+      }
+    }
+    
+    // データをBase64エンコード（旧形式、互換性のため残す）
     function encodeDataToBase64(data) {
       const jsonStr = JSON.stringify(data);
       // UTF-8対応のBase64エンコード
@@ -674,7 +792,7 @@
       return btoa(binaryStr);
     }
     
-    // Base64からデータをデコード
+    // Base64からデータをデコード（複数形式に対応）
     function decodeDataFromBase64(base64Str) {
       try {
         const binaryStr = atob(base64Str);
@@ -682,6 +800,58 @@
         for (let i = 0; i < binaryStr.length; i++) {
           bytes[i] = binaryStr.charCodeAt(i);
         }
+        
+        // 新形式（ASCIIメタデータ + バイナリ）の判定
+        // 最初の2バイトがASCIIデータ長として読める場合
+        if (bytes.length > 2) {
+          const asciiLen = new DataView(bytes.buffer).getUint16(0, true);
+          if (asciiLen < bytes.length && asciiLen < 1000) {
+            // ASCIIデータ部を読む（ただし検証用）
+            try {
+              const asciiPart = new TextDecoder().decode(bytes.slice(2, 2 + asciiLen));
+              if (asciiPart.includes("UNIVERSAL DECODER")) {
+                // 新形式と判定 - バイナリ部分をデコード
+                const binaryPart = bytes.slice(2 + asciiLen);
+                const view = new DataView(binaryPart.buffer, binaryPart.byteOffset);
+                let offset = 0;
+                
+                // コンパクト形式デコード
+                const version = view.getUint8(offset++);
+                if (version === 2) {
+                  const flags = view.getUint8(offset++);
+                  const n = view.getUint16(offset, true); offset += 2;
+                  const kCount = view.getUint16(offset, true); offset += 2;
+                  const scale = view.getFloat32(offset, true); offset += 4;
+                  
+                  const is3d = (flags & 1) === 1;
+                  const k = [];
+                  const d = is3d ? [[], [], []] : [[]];
+                  
+                  for (let i = 0; i < kCount; i++) {
+                    k.push(view.getUint16(offset, true)); offset += 2;
+                    
+                    for (let axis = 0; axis < d.length; axis++) {
+                      const re = view.getInt16(offset, true) / scale; offset += 2;
+                      const im = view.getInt16(offset, true) / scale; offset += 2;
+                      d[axis].push(re, im);
+                    }
+                  }
+                  
+                  return { n, k, d };
+                }
+              }
+            } catch (e) {
+              // ASCIIパース失敗 - 次の方法を試す
+            }
+          }
+        }
+        
+        // コンパクト形式（バージョン=2）の判定
+        if (bytes[0] === 2) {
+          return decodeDataCompact(base64Str);
+        }
+        
+        // 旧形式（JSON）
         const jsonStr = new TextDecoder().decode(bytes);
         return JSON.parse(jsonStr);
       } catch (e) {
@@ -690,11 +860,40 @@
       }
     }
     
-    // 共有URLを生成
+    // 共有URLを生成（新しいコンパクト形式を使用 + 復元方法をASCII埋め込み）
     function generateShareUrl(coefficients) {
-      const encoded = encodeDataToBase64(coefficients);
+      const encoded = encodeDataCompact(coefficients);
+      
+      // QRデータに復元方法をASCII形式で埋め込み
+      // UNIVERSAL DECODERヘッダー + バイナリデータ
+      const header = "FOURIER:";
+      const decoderInfo = "[UNIVERSAL DECODER: FOURIER STROKE]\n" +
+                         "Formula: v(t)=Sum(Re(F[k]*exp(i*2*pi*k*t)))\n" +
+                         "Range: t=0.0...1.0\n" +
+                         "Target: X,Y,Pen axes independently\n" +
+                         "Draw: Plot(x(t),y(t)) where pen(t)>0.5\n" +
+                         "Data:";
+      
+      // QRに直接埋め込める場合とそうでない場合を判定
+      // ASCIIデータ + バイナリデータをBase64で結合
+      const asciiBytes = new TextEncoder().encode(decoderInfo);
+      const binaryBytes = new Uint8Array(atob(encoded).split('').map(c => c.charCodeAt(0)));
+      
+      // 結合: ASCIIデータ長(2bytes) + ASCIIデータ + バイナリデータ
+      const combined = new ArrayBuffer(2 + asciiBytes.length + binaryBytes.length);
+      const combinedView = new DataView(combined);
+      
+      combinedView.setUint16(0, asciiBytes.length, true);
+      
+      // ASCIIデータをコピー
+      const combinedBytes = new Uint8Array(combined);
+      combinedBytes.set(asciiBytes, 2);
+      combinedBytes.set(binaryBytes, 2 + asciiBytes.length);
+      
+      // Base64エンコード
+      const finalEncoded = btoa(String.fromCharCode(...combinedBytes));
       const baseUrl = window.location.origin + window.location.pathname;
-      return baseUrl + '?d=' + encodeURIComponent(encoded);
+      return baseUrl + '?d=' + encodeURIComponent(finalEncoded);
     }
     
     // URLパラメータからデータを読み込み
@@ -715,10 +914,98 @@
       return null;
     }
     
+    // QRコードのバージョンと容量の対応表（誤り訂正レベルMの場合の英数字容量）
+    const QR_VERSION_CAPACITY = [
+      { version: 1, capacity: 20 },
+      { version: 2, capacity: 38 },
+      { version: 3, capacity: 61 },
+      { version: 4, capacity: 90 },
+      { version: 5, capacity: 122 },
+      { version: 6, capacity: 154 },
+      { version: 7, capacity: 178 },
+      { version: 8, capacity: 221 },
+      { version: 9, capacity: 262 },
+      { version: 10, capacity: 311 },
+      { version: 15, capacity: 586 },
+      { version: 20, capacity: 969 },
+      { version: 25, capacity: 1370 },
+      { version: 30, capacity: 1852 },
+      { version: 35, capacity: 2324 },
+      { version: 40, capacity: 4296 }
+    ];
+    
+    // K値からおおよそのURL長を推定（コンパクトバイナリ形式）
+    function estimateUrlLength(k, is3d = true) {
+      // コンパクト形式: ヘッダー10bytes + K * (2 + 4*axes) bytes
+      // 3D: 10 + K * (2 + 12) = 10 + 14K bytes
+      // 2D: 10 + K * (2 + 4) = 10 + 6K bytes
+      const binarySize = is3d ? (10 + k * 14) : (10 + k * 6);
+      // Base64は約1.37倍、URLエンコードでさらに少し増える
+      const base64Size = Math.ceil(binarySize * 1.37);
+      const baseUrlSize = 80; // ベースURL + パラメータ名
+      return baseUrlSize + base64Size;
+    }
+    
+    // K値に対するQRコード情報を取得
+    function getQRInfoForK(k, is3d = true) {
+      const estimatedLength = estimateUrlLength(k, is3d);
+      
+      // スマホで読み取りやすいバージョンの上限
+      const easyReadMaxVersion = 10; // バージョン10以下なら読み取りやすい
+      const possibleMaxVersion = 25; // バージョン25以下なら一般的なアプリで可能
+      
+      let recommendedVersion = null;
+      let isEasyRead = false;
+      let isPossible = false;
+      
+      for (const info of QR_VERSION_CAPACITY) {
+        if (estimatedLength <= info.capacity) {
+          recommendedVersion = info.version;
+          isEasyRead = info.version <= easyReadMaxVersion;
+          isPossible = info.version <= possibleMaxVersion;
+          break;
+        }
+      }
+      
+      return {
+        estimatedLength,
+        recommendedVersion,
+        isEasyRead,
+        isPossible,
+        maxEasyK: findMaxKForVersion(easyReadMaxVersion, is3d),
+        maxPossibleK: findMaxKForVersion(possibleMaxVersion, is3d)
+      };
+    }
+    
+    // 特定のバージョンで収まる最大K値を逆算
+    function findMaxKForVersion(maxVersion, is3d = true) {
+      const capacity = QR_VERSION_CAPACITY.find(v => v.version >= maxVersion)?.capacity || 4296;
+      // 逆算: capacity ≈ 80 + 1.37 * (10 + bytesPerK * k)
+      // 3D: bytesPerK = 14, 2D: bytesPerK = 6
+      const bytesPerK = is3d ? 14 : 6;
+      const maxK = Math.floor(((capacity - 80) / 1.37 - 10) / bytesPerK);
+      return Math.max(1, maxK);
+    }
+    
     // QRコードを生成してCanvasに描画
-    function generateQRCode(url, targetCanvas, cellSize) {
+    function generateQRCode(url, targetCanvas, baseCellSize) {
       try {
-        const qr = qrcode(0, 'L'); // 自動バージョン, 低誤り訂正
+        const dataLength = url.length;
+        
+        // データ長に応じて誤り訂正レベルとセルサイズを調整
+        let errorCorrectionLevel = 'M';
+        let cellSize = baseCellSize;
+        
+        // 長いデータの場合はセルサイズを調整して読み取りやすさを確保
+        if (dataLength > 500) {
+          cellSize = Math.max(4, baseCellSize - 1);
+        }
+        if (dataLength > 1000) {
+          cellSize = Math.max(3, baseCellSize - 2);
+          errorCorrectionLevel = 'L'; // 容量確保のため誤り訂正を下げる
+        }
+        
+        const qr = qrcode(0, errorCorrectionLevel);
         qr.addData(url);
         qr.make();
         
@@ -745,7 +1032,7 @@
           }
         }
         
-        return { width: size, height: size };
+        return { width: size, height: size, version: Math.ceil((moduleCount - 17) / 4), moduleCount };
       } catch (e) {
         console.error('QR code generation failed:', e);
         return null;
@@ -1061,6 +1348,25 @@
       }
     }
 
+    // QRヒント表示を更新（フーリエ変換完了時に呼ばれる）
+    function updateQRHint() {
+      const k = parseInt(document.getElementById('kValue').value) || 10;
+      const is3d = multiStrokeMode;
+      const info = getQRInfoForK(k, is3d);
+      const hintText = document.getElementById('qrHintText');
+      
+      if (info.isEasyRead) {
+        hintText.className = 'qr-hint ok';
+        hintText.textContent = `💡 K=${k}: QRコード読み取り◎ (Ver.${info.recommendedVersion})`;
+      } else if (info.isPossible) {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QR読み取り可。K≤${info.maxEasyK}でより確実に`;
+      } else {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QRが大。K≤${info.maxPossibleK}を推奨`;
+      }
+    }
+
     // クリアボタン
     document.getElementById('clearBtn').addEventListener('click', () => {
       strokes = [];
@@ -1121,6 +1427,9 @@
           drawPoints(rctx, reconCanvas, result);
           const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
           updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${inputPoints.length}${strokeInfo})`);
+          
+          // QRヒントを更新
+          updateQRHint();
         } catch (error) {
           console.error("Error:", error);
           alert("エラーが発生しました: " + error.message);
@@ -1349,21 +1658,27 @@
       const artHeight = artSize * (artCanvas.height / artCanvas.width);
       cardCtx.drawImage(artCanvas, artX, artY, artSize, artHeight);
       
-      // QRコード生成
+      // QRコード生成（セルサイズを大きくして読み取りやすく）
       const tempQrCanvas = document.createElement('canvas');
-      const qrResult = generateQRCode(shareUrl, tempQrCanvas, 4);
+      const qrResult = generateQRCode(shareUrl, tempQrCanvas, 6);
+      
+      // URL長の警告
+      if (shareUrl.length > 2000) {
+        console.warn('Share URL is ' + shareUrl.length + ' characters. QR code may be hard to scan. Try reducing K value.');
+      }
       
       if (qrResult) {
-        // QRコードを右下に配置
-        const qrX = cardWidth - margin - qrSize;
+        // QRコードを右下に配置（サイズを大きく）
+        const qrDisplaySize = 220;
+        const qrX = cardWidth - margin - qrDisplaySize;
         const qrY = artY + artHeight + 30;
-        cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrSize, qrSize);
+        cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrDisplaySize, qrDisplaySize);
         
         // QRラベル
         cardCtx.fillStyle = '#666666';
         cardCtx.font = '12px Arial, sans-serif';
         cardCtx.textAlign = 'center';
-        cardCtx.fillText('Scan to restore', qrX + qrSize / 2, qrY + qrSize + 15);
+        cardCtx.fillText('Scan to restore', qrX + qrDisplaySize / 2, qrY + qrDisplaySize + 15);
       }
       
       // Rosetta Text（復元のための数式情報）

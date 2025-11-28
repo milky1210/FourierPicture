@@ -219,6 +219,20 @@
       color: #2196F3;
       text-decoration: none;
     }
+    .qr-hint {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-top: 8px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .qr-hint.warning {
+      color: #e65100;
+    }
+    .qr-hint.ok {
+      color: #2e7d32;
+    }
   </style>
 </head>
 <body>
@@ -279,6 +293,7 @@
           <button id="downloadOutputBtn" class="secondary">Download Output</button>
           <button id="shareBtn" class="share" disabled>Create QR Card</button>
         </div>
+        <div id="qrHintText" class="qr-hint"></div>
       </div>
     </div>
   </div>
@@ -634,7 +649,110 @@
       return result;
     }
     
-    // Encode data to Base64
+    // Efficient binary encoding (quantize coefficients to 16-bit integers)
+    function encodeDataCompact(data) {
+      const n = data.n;
+      const k = data.k;
+      const d = data.d;
+      const is3d = d.length === 3;
+      
+      // Header: version(1byte) + flags(1byte) + N(2bytes) + K count(2bytes)
+      const kCount = k.length;
+      const headerSize = 6;
+      
+      // Bytes per coefficient: index(2bytes) + Re(2bytes) + Im(2bytes) = 6bytes per freq
+      // 3D: 6bytes × 3 axes = 18bytes per freq, 2D: 6bytes per freq
+      const coeffBytesPerFreq = is3d ? 18 : 6;
+      const totalBytes = headerSize + kCount * (2 + coeffBytesPerFreq);
+      
+      const buffer = new ArrayBuffer(totalBytes);
+      const view = new DataView(buffer);
+      
+      let offset = 0;
+      view.setUint8(offset++, 2); // version 2 (compact)
+      view.setUint8(offset++, is3d ? 1 : 0); // flags
+      view.setUint16(offset, n, true); offset += 2;
+      view.setUint16(offset, kCount, true); offset += 2;
+      
+      // Calculate scale (find max value of coefficients)
+      let maxVal = 0;
+      for (const arr of d) {
+        for (const v of arr) {
+          maxVal = Math.max(maxVal, Math.abs(v));
+        }
+      }
+      const scale = maxVal > 0 ? 32000 / maxVal : 1;
+      
+      // Save scale value (add 4 bytes as float32)
+      const newTotalBytes = totalBytes + 4;
+      const newBuffer = new ArrayBuffer(newTotalBytes);
+      const newView = new DataView(newBuffer);
+      
+      // Copy header
+      offset = 0;
+      newView.setUint8(offset++, 2);
+      newView.setUint8(offset++, is3d ? 1 : 0);
+      newView.setUint16(offset, n, true); offset += 2;
+      newView.setUint16(offset, kCount, true); offset += 2;
+      newView.setFloat32(offset, scale, true); offset += 4;
+      
+      // Coefficient data
+      for (let i = 0; i < kCount; i++) {
+        newView.setUint16(offset, k[i], true); offset += 2;
+        
+        for (let axis = 0; axis < d.length; axis++) {
+          const re = Math.round(d[axis][i * 2] * scale);
+          const im = Math.round(d[axis][i * 2 + 1] * scale);
+          newView.setInt16(offset, re, true); offset += 2;
+          newView.setInt16(offset, im, true); offset += 2;
+        }
+      }
+      
+      // Convert to Uint8Array and Base64 encode
+      const bytes = new Uint8Array(newBuffer);
+      const binaryStr = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+      return btoa(binaryStr);
+    }
+    
+    // Decode compact data
+    function decodeDataCompact(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const view = new DataView(bytes.buffer);
+        
+        let offset = 0;
+        const version = view.getUint8(offset++);
+        const flags = view.getUint8(offset++);
+        const n = view.getUint16(offset, true); offset += 2;
+        const kCount = view.getUint16(offset, true); offset += 2;
+        const scale = view.getFloat32(offset, true); offset += 4;
+        
+        const is3d = (flags & 1) === 1;
+        const k = [];
+        const d = is3d ? [[], [], []] : [[]];
+        
+        for (let i = 0; i < kCount; i++) {
+          k.push(view.getUint16(offset, true)); offset += 2;
+          
+          for (let axis = 0; axis < d.length; axis++) {
+            const re = view.getInt16(offset, true) / scale; offset += 2;
+            const im = view.getInt16(offset, true) / scale; offset += 2;
+            d[axis].push(re, im);
+          }
+        }
+        
+        return { n, k, d };
+      } catch (e) {
+        console.error('Failed to decode compact data:', e);
+        return null;
+      }
+    }
+    
+    // Encode data to Base64 (legacy format, kept for compatibility)
     function encodeDataToBase64(data) {
       const jsonStr = JSON.stringify(data);
       // UTF-8 compatible Base64 encoding
@@ -643,7 +761,7 @@
       return btoa(binaryStr);
     }
     
-    // Decode data from Base64
+    // Decode data from Base64 (supports both formats)
     function decodeDataFromBase64(base64Str) {
       try {
         const binaryStr = atob(base64Str);
@@ -651,6 +769,13 @@
         for (let i = 0; i < binaryStr.length; i++) {
           bytes[i] = binaryStr.charCodeAt(i);
         }
+        
+        // Version check (new format has version=2)
+        if (bytes[0] === 2) {
+          return decodeDataCompact(base64Str);
+        }
+        
+        // Legacy format (JSON)
         const jsonStr = new TextDecoder().decode(bytes);
         return JSON.parse(jsonStr);
       } catch (e) {
@@ -659,11 +784,105 @@
       }
     }
     
-    // Generate share URL
+    // Decode data from Base64 (supports multiple formats)
+    function decodeDataFromBase64(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        
+        // Check for new format (ASCII metadata + binary)
+        // First 2 bytes = ASCII data length
+        if (bytes.length > 2) {
+          const asciiLen = new DataView(bytes.buffer).getUint16(0, true);
+          if (asciiLen < bytes.length && asciiLen < 1000) {
+            try {
+              const asciiPart = new TextDecoder().decode(bytes.slice(2, 2 + asciiLen));
+              if (asciiPart.includes("UNIVERSAL DECODER")) {
+                // New format detected - decode binary part
+                const binaryPart = bytes.slice(2 + asciiLen);
+                const view = new DataView(binaryPart.buffer, binaryPart.byteOffset);
+                let offset = 0;
+                
+                // Compact format decode
+                const version = view.getUint8(offset++);
+                if (version === 2) {
+                  const flags = view.getUint8(offset++);
+                  const n = view.getUint16(offset, true); offset += 2;
+                  const kCount = view.getUint16(offset, true); offset += 2;
+                  const scale = view.getFloat32(offset, true); offset += 4;
+                  
+                  const is3d = (flags & 1) === 1;
+                  const k = [];
+                  const d = is3d ? [[], [], []] : [[]];
+                  
+                  for (let i = 0; i < kCount; i++) {
+                    k.push(view.getUint16(offset, true)); offset += 2;
+                    
+                    for (let axis = 0; axis < d.length; axis++) {
+                      const re = view.getInt16(offset, true) / scale; offset += 2;
+                      const im = view.getInt16(offset, true) / scale; offset += 2;
+                      d[axis].push(re, im);
+                    }
+                  }
+                  
+                  return { n, k, d };
+                }
+              }
+            } catch (e) {
+              // ASCII parsing failed - try next method
+            }
+          }
+        }
+        
+        // Check for compact format (version=2)
+        if (bytes[0] === 2) {
+          return decodeDataCompact(base64Str);
+        }
+        
+        // Legacy format (JSON)
+        const jsonStr = new TextDecoder().decode(bytes);
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error('Failed to decode data:', e);
+        return null;
+      }
+    }
+    
+    // Generate share URL (with ASCII decoder metadata + compact binary)
     function generateShareUrl(coefficients) {
-      const encoded = encodeDataToBase64(coefficients);
+      const encoded = encodeDataCompact(coefficients);
+      
+      // Embed decoder method in QR data as ASCII text
+      // UNIVERSAL DECODER header + binary data
+      const decoderInfo = "[UNIVERSAL DECODER: FOURIER STROKE]\n" +
+                         "Formula: v(t)=Sum(Re(F[k]*exp(i*2*pi*k*t)))\n" +
+                         "Range: t=0.0...1.0\n" +
+                         "Target: X,Y,Pen axes independently\n" +
+                         "Draw: Plot(x(t),y(t)) where pen(t)>0.5\n" +
+                         "Data:";
+      
+      // Combine ASCII data + binary data as Base64
+      const asciiBytes = new TextEncoder().encode(decoderInfo);
+      const binaryBytes = new Uint8Array(atob(encoded).split('').map(c => c.charCodeAt(0)));
+      
+      // Combined: ASCII data length(2bytes) + ASCII data + binary data
+      const combined = new ArrayBuffer(2 + asciiBytes.length + binaryBytes.length);
+      const combinedView = new DataView(combined);
+      
+      combinedView.setUint16(0, asciiBytes.length, true);
+      
+      // Copy ASCII and binary data
+      const combinedBytes = new Uint8Array(combined);
+      combinedBytes.set(asciiBytes, 2);
+      combinedBytes.set(binaryBytes, 2 + asciiBytes.length);
+      
+      // Base64 encode
+      const finalEncoded = btoa(String.fromCharCode(...combinedBytes));
       const baseUrl = window.location.origin + window.location.pathname;
-      return baseUrl + '?d=' + encodeURIComponent(encoded);
+      return baseUrl + '?d=' + encodeURIComponent(finalEncoded);
     }
     
     // Load data from URL params
@@ -684,10 +903,98 @@
       return null;
     }
     
+    // QR version capacity table (alphanumeric capacity for error correction level M)
+    const QR_VERSION_CAPACITY = [
+      { version: 1, capacity: 20 },
+      { version: 2, capacity: 38 },
+      { version: 3, capacity: 61 },
+      { version: 4, capacity: 90 },
+      { version: 5, capacity: 122 },
+      { version: 6, capacity: 154 },
+      { version: 7, capacity: 178 },
+      { version: 8, capacity: 221 },
+      { version: 9, capacity: 262 },
+      { version: 10, capacity: 311 },
+      { version: 15, capacity: 586 },
+      { version: 20, capacity: 969 },
+      { version: 25, capacity: 1370 },
+      { version: 30, capacity: 1852 },
+      { version: 35, capacity: 2324 },
+      { version: 40, capacity: 4296 }
+    ];
+    
+    // Estimate URL length from K value (compact binary format)
+    function estimateUrlLength(k, is3d = true) {
+      // Compact format: header 10bytes + K * (2 + 4*axes) bytes
+      // 3D: 10 + K * (2 + 12) = 10 + 14K bytes
+      // 2D: 10 + K * (2 + 4) = 10 + 6K bytes
+      const binarySize = is3d ? (10 + k * 14) : (10 + k * 6);
+      // Base64 is ~1.37x larger, URL encoding adds a bit more
+      const base64Size = Math.ceil(binarySize * 1.37);
+      const baseUrlSize = 80; // base URL + parameter name
+      return baseUrlSize + base64Size;
+    }
+    
+    // Get QR code info for K value
+    function getQRInfoForK(k, is3d = true) {
+      const estimatedLength = estimateUrlLength(k, is3d);
+      
+      // Max versions for easy smartphone scanning
+      const easyReadMaxVersion = 10; // Version 10 or below is easy to scan
+      const possibleMaxVersion = 25; // Version 25 or below is possible with most apps
+      
+      let recommendedVersion = null;
+      let isEasyRead = false;
+      let isPossible = false;
+      
+      for (const info of QR_VERSION_CAPACITY) {
+        if (estimatedLength <= info.capacity) {
+          recommendedVersion = info.version;
+          isEasyRead = info.version <= easyReadMaxVersion;
+          isPossible = info.version <= possibleMaxVersion;
+          break;
+        }
+      }
+      
+      return {
+        estimatedLength,
+        recommendedVersion,
+        isEasyRead,
+        isPossible,
+        maxEasyK: findMaxKForVersion(easyReadMaxVersion, is3d),
+        maxPossibleK: findMaxKForVersion(possibleMaxVersion, is3d)
+      };
+    }
+    
+    // Calculate max K for a given version
+    function findMaxKForVersion(maxVersion, is3d = true) {
+      const capacity = QR_VERSION_CAPACITY.find(v => v.version >= maxVersion)?.capacity || 4296;
+      // Reverse: capacity ≈ 80 + 1.37 * (10 + bytesPerK * k)
+      // 3D: bytesPerK = 14, 2D: bytesPerK = 6
+      const bytesPerK = is3d ? 14 : 6;
+      const maxK = Math.floor(((capacity - 80) / 1.37 - 10) / bytesPerK);
+      return Math.max(1, maxK);
+    }
+    
     // Generate QR code and render to canvas
-    function generateQRCode(url, targetCanvas, cellSize) {
+    function generateQRCode(url, targetCanvas, baseCellSize) {
       try {
-        const qr = qrcode(0, 'L'); // Auto version, low error correction
+        const dataLength = url.length;
+        
+        // Adjust error correction and cell size based on data length
+        let errorCorrectionLevel = 'M';
+        let cellSize = baseCellSize;
+        
+        // For longer data, adjust cell size for better readability
+        if (dataLength > 500) {
+          cellSize = Math.max(4, baseCellSize - 1);
+        }
+        if (dataLength > 1000) {
+          cellSize = Math.max(3, baseCellSize - 2);
+          errorCorrectionLevel = 'L'; // Lower error correction for capacity
+        }
+        
+        const qr = qrcode(0, errorCorrectionLevel);
         qr.addData(url);
         qr.make();
         
@@ -714,7 +1021,7 @@
           }
         }
         
-        return { width: size, height: size };
+        return { width: size, height: size, version: Math.ceil((moduleCount - 17) / 4), moduleCount };
       } catch (e) {
         console.error('QR code generation failed:', e);
         return null;
@@ -1015,6 +1322,25 @@
       }
     }
 
+    // Update QR hint display (called after Fourier transform)
+    function updateQRHint() {
+      const k = parseInt(document.getElementById('kValue').value) || 10;
+      const is3d = multiStrokeMode;
+      const info = getQRInfoForK(k, is3d);
+      const hintText = document.getElementById('qrHintText');
+      
+      if (info.isEasyRead) {
+        hintText.className = 'qr-hint ok';
+        hintText.textContent = `💡 K=${k}: QR scan optimal (Ver.${info.recommendedVersion})`;
+      } else if (info.isPossible) {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QR scannable. K≤${info.maxEasyK} more reliable`;
+      } else {
+        hintText.className = 'qr-hint warning';
+        hintText.textContent = `💡 K=${k}: QR large. K≤${info.maxPossibleK} recommended`;
+      }
+    }
+
     document.getElementById('clearBtn').addEventListener('click', () => {
       strokes = [];
       currentStroke = [];
@@ -1071,6 +1397,9 @@
           drawPoints(rctx, reconCanvas, result);
           const strokeInfo = useMultiStroke ? `, Strokes: ${strokes.length}` : '';
           updateStatus(`Transform complete (K=${K}, Points: ${inputPoints.length}${strokeInfo})`);
+          
+          // Update QR hint
+          updateQRHint();
         } catch (error) {
           console.error("Error:", error);
           alert("An error occurred: " + error.message);
