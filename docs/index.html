@@ -670,10 +670,7 @@
       const jsonStr = JSON.stringify(data);
       // UTF-8対応のBase64エンコード
       const utf8Bytes = new TextEncoder().encode(jsonStr);
-      let binaryStr = '';
-      for (const byte of utf8Bytes) {
-        binaryStr += String.fromCharCode(byte);
-      }
+      const binaryStr = Array.from(utf8Bytes, byte => String.fromCharCode(byte)).join('');
       return btoa(binaryStr);
     }
     
@@ -1576,9 +1573,8 @@
       drawPoints(rctx, reconCanvas, points);
       updateStatus(`復元完了 (K=${data.k.length}, N=${data.n})`);
       
-      // 係数データを保存（QRカード生成用）
+      // 係数データを保存（QRカード生成用 - ビューアーモードでは使用しない）
       currentCoefficients = data;
-      document.getElementById('shareBtn').disabled = false;
       
       // アニメーション再生
       playBtn.addEventListener('click', () => {
@@ -1697,8 +1693,7 @@
       }
     });
     
-    // フーリエ変換時に係数を保存（元のprocessBtnリスナーを拡張）
-    const originalProcessHandler = document.getElementById('processBtn').onclick;
+    // フーリエ変換時に係数を保存
     document.getElementById('processBtn').addEventListener('click', () => {
       // フーリエ変換実行後に係数を計算
       setTimeout(() => {

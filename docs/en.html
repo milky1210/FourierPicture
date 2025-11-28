@@ -639,10 +639,7 @@
       const jsonStr = JSON.stringify(data);
       // UTF-8 compatible Base64 encoding
       const utf8Bytes = new TextEncoder().encode(jsonStr);
-      let binaryStr = '';
-      for (const byte of utf8Bytes) {
-        binaryStr += String.fromCharCode(byte);
-      }
+      const binaryStr = Array.from(utf8Bytes, byte => String.fromCharCode(byte)).join('');
       return btoa(binaryStr);
     }
     
@@ -1521,9 +1518,8 @@
       drawPoints(rctx, reconCanvas, points);
       updateStatus(`Restored (K=${data.k.length}, N=${data.n})`);
       
-      // Save coefficient data (for QR card generation)
+      // Save coefficient data (viewer mode - not used for sharing)
       currentCoefficients = data;
-      document.getElementById('shareBtn').disabled = false;
       
       // Animation play
       playBtn.addEventListener('click', () => {
@@ -1642,8 +1638,7 @@
       }
     });
     
-    // Save coefficients on Fourier transform (extend original processBtn listener)
-    const originalProcessHandler = document.getElementById('processBtn').onclick;
+    // Save coefficients on Fourier transform
     document.getElementById('processBtn').addEventListener('click', () => {
       // Calculate coefficients after transform
       setTimeout(() => {
