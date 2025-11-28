@@ -788,7 +788,7 @@
 
       updateStatus('処理中...');
       
-      const useMultiStroke = multiStrokeMode && strokes.length > 1;
+      const useMultiStroke = multiStrokeMode;
       const inputPoints = useMultiStroke ? points3d : points2d;
       
       // JavaScriptでフーリエ変換を実行
@@ -838,7 +838,7 @@
       showProgress(true);
       setProgress(0);
 
-      const useMultiStroke = multiStrokeMode && strokes.length > 1;
+      const useMultiStroke = multiStrokeMode;
       const inputPoints = useMultiStroke ? points3d : points2d;
 
       // JavaScriptでフレーム生成
