@@ -692,8 +692,8 @@
       const headerSize = 6;
       
       // 各係数のバイト数: インデックス(2bytes) + Re(2bytes) + Im(2bytes) = 6bytes per freq
-      // 3D: 6bytes × 3軸 = 18bytes per freq, 2D: 6bytes per freq
-      const coeffBytesPerFreq = is3d ? 18 : 6;
+      // 3D: 4bytes(Re+Im) × 3軸 = 12bytes per freq, 2D: 4bytes per freq
+      const coeffBytesPerFreq = is3d ? 12 : 4;
       const totalBytes = headerSize + kCount * (2 + coeffBytesPerFreq);
       
       const buffer = new ArrayBuffer(totalBytes);
@@ -890,8 +890,16 @@
       combinedBytes.set(asciiBytes, 2);
       combinedBytes.set(binaryBytes, 2 + asciiBytes.length);
       
-      // Base64エンコード
-      const finalEncoded = btoa(String.fromCharCode(...combinedBytes));
+      // Base64エンコード (Stack overflow対策)
+      let binary = '';
+      const len = combinedBytes.byteLength;
+      const chunkSize = 0x8000; // 32k
+      for (let i = 0; i < len; i += chunkSize) {
+        const chunk = combinedBytes.subarray(i, Math.min(i + chunkSize, len));
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      const finalEncoded = btoa(binary);
+      
       const baseUrl = window.location.origin + window.location.pathname;
       return baseUrl + '?d=' + encodeURIComponent(finalEncoded);
     }
@@ -987,7 +995,7 @@
       return Math.max(1, maxK);
     }
     
-    // QRコードを生成してCanvasに描画
+    // QRコードを生成してCanvasに描画（大きなK値にも対応）
     function generateQRCode(url, targetCanvas, baseCellSize) {
       try {
         const dataLength = url.length;
@@ -996,13 +1004,19 @@
         let errorCorrectionLevel = 'M';
         let cellSize = baseCellSize;
         
-        // 長いデータの場合はセルサイズを調整して読み取りやすさを確保
+        // 段階的にセルサイズを縮小してQRコードを小さくする
         if (dataLength > 500) {
           cellSize = Math.max(4, baseCellSize - 1);
         }
         if (dataLength > 1000) {
           cellSize = Math.max(3, baseCellSize - 2);
           errorCorrectionLevel = 'L'; // 容量確保のため誤り訂正を下げる
+        }
+        if (dataLength > 2000) {
+          cellSize = Math.max(2, baseCellSize - 3);
+        }
+        if (dataLength > 3000) {
+          cellSize = Math.max(1, baseCellSize - 4);
         }
         
         const qr = qrcode(0, errorCorrectionLevel);
@@ -1622,113 +1636,162 @@
     
     // QRカード画像を生成
     function generateArtifactCard(artCanvas, coefficients) {
-      const shareUrl = generateShareUrl(coefficients);
-      currentShareUrl = shareUrl;
-      
-      // カードサイズ設定
-      const cardWidth = 800;
-      const cardHeight = 1000;
-      const margin = 30;
-      const artSize = 500;
-      const qrSize = 180;
-      
-      cardCanvas.width = cardWidth;
-      cardCanvas.height = cardHeight;
-      
-      // 背景
-      cardCtx.fillStyle = '#ffffff';
-      cardCtx.fillRect(0, 0, cardWidth, cardHeight);
-      
-      // タイトル
-      cardCtx.fillStyle = '#333333';
-      cardCtx.font = 'bold 24px Arial, sans-serif';
-      cardCtx.textAlign = 'center';
-      cardCtx.fillText('Fourier Art Artifact', cardWidth / 2, margin + 25);
-      
-      // アート画像を中央に配置
-      const artX = (cardWidth - artSize) / 2;
-      const artY = margin + 50;
-      
-      // 枠線
-      cardCtx.strokeStyle = '#333333';
-      cardCtx.lineWidth = 2;
-      cardCtx.strokeRect(artX - 2, artY - 2, artSize + 4, artSize * (artCanvas.height / artCanvas.width) + 4);
-      
-      // アート画像描画
-      const artHeight = artSize * (artCanvas.height / artCanvas.width);
-      cardCtx.drawImage(artCanvas, artX, artY, artSize, artHeight);
-      
-      // QRコード生成（セルサイズを大きくして読み取りやすく）
-      const tempQrCanvas = document.createElement('canvas');
-      const qrResult = generateQRCode(shareUrl, tempQrCanvas, 6);
-      
-      // URL長の警告
-      if (shareUrl.length > 2000) {
-        console.warn('Share URL is ' + shareUrl.length + ' characters. QR code may be hard to scan. Try reducing K value.');
-      }
-      
-      if (qrResult) {
-        // QRコードを右下に配置（サイズを大きく）
-        const qrDisplaySize = 220;
-        const qrX = cardWidth - margin - qrDisplaySize;
-        const qrY = artY + artHeight + 30;
-        cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrDisplaySize, qrDisplaySize);
+      try {
+        const shareUrl = generateShareUrl(coefficients);
+        currentShareUrl = shareUrl;
         
-        // QRラベル
-        cardCtx.fillStyle = '#666666';
-        cardCtx.font = '12px Arial, sans-serif';
+        // カード幅は固定
+        const cardWidth = 800;
+        const margin = 30;
+        const artSize = 500;
+        
+        // アート画像の高さ計算
+        const artHeight = artSize * (artCanvas.height / artCanvas.width);
+        const artX = (cardWidth - artSize) / 2;
+        const artY = margin + 50;
+        
+        // QRコード生成（サイズ計測のため先に実行）
+        const tempQrCanvas = document.createElement('canvas');
+        const qrResult = generateQRCode(shareUrl, tempQrCanvas, 6);
+        
+        // URL長の警告
+        if (shareUrl.length > 2000) {
+          console.warn('Share URL is ' + shareUrl.length + ' characters. QR code may be hard to scan. Try reducing K value.');
+        }
+        
+        // QR配置とサイズの計算
+        let qrX, qrY, qrDisplaySize = 0;
+        let qrBottom = artY + artHeight + 20; // QRがない場合の開始位置
+        
+        if (qrResult) {
+          const maxQrDisplaySize = 250;
+          qrDisplaySize = Math.min(maxQrDisplaySize, qrResult.width);
+          
+          if (qrDisplaySize > 200) {
+            // 大きいQRは下部中央に配置
+            qrX = (cardWidth - qrDisplaySize) / 2;
+            qrY = artY + artHeight + 40;
+          } else {
+            // 小さいQRは右下に配置
+            qrX = cardWidth - margin - qrDisplaySize;
+            qrY = artY + artHeight + 30;
+          }
+          
+          // QRの下にテキストが入る分のマージン
+          qrBottom = qrY + qrDisplaySize + 40;
+        } else {
+          // QR生成失敗時のレイアウト（エラーメッセージ用のスペース確保）
+          qrBottom = artY + artHeight + 100;
+        }
+        
+        // Rosetta Textの内容準備
+        const rosettaLines = [
+          'Format: IDFT (Real part only) of X, Y, Pen',
+          'Formula: v(t) = (1/N) * Σ Re(Fk * exp(i*2*π*k*t))',
+          '',
+          'Data structure: { n: N, k: [indices], d: [coeffs] }',
+          '  - N: Original point count',
+          '  - k: Selected frequency indices (sorted by amplitude)',
+          '  - d: [X coeffs, Y coeffs, Pen coeffs]',
+          '       Each: [Re0, Im0, Re1, Im1, ...]',
+          '',
+          'To reconstruct:',
+          '  1. Decode Base64 from URL parameter "d"',
+          '  2. Parse JSON to get {n, k, d}',
+          '  3. For t ∈ [0,1), compute:',
+          '     x(t) = Σ Re(Fxk * exp(i*2*π*fk*N*t)) / N',
+          '     y(t) = Σ Re(Fyk * exp(i*2*π*fk*N*t)) / N',
+          '     pen(t) = clamp(Σ Re(Fpenk * ...) / N, 0, 1)',
+          '  4. Draw line when pen(t) > 0.5',
+          '',
+          `K = ${coefficients.k.length}, N = ${coefficients.n}`
+        ];
+        
+        // Rosetta Textの配置計算
+        const rosettaY = qrBottom + 30;
+        const rosettaLineHeight = 16;
+        const rosettaHeight = rosettaLines.length * rosettaLineHeight;
+        
+        // 必要なカードの高さを計算 (フッター分 50px + マージン)
+        const cardHeight = rosettaY + rosettaHeight + 60;
+        
+        // キャンバスサイズ更新
+        cardCanvas.width = cardWidth;
+        cardCanvas.height = cardHeight;
+        
+        // 背景
+        cardCtx.fillStyle = '#ffffff';
+        cardCtx.fillRect(0, 0, cardWidth, cardHeight);
+        
+        // タイトル
+        cardCtx.fillStyle = '#333333';
+        cardCtx.font = 'bold 24px Arial, sans-serif';
         cardCtx.textAlign = 'center';
-        cardCtx.fillText('Scan to restore', qrX + qrDisplaySize / 2, qrY + qrDisplaySize + 15);
+        cardCtx.fillText('Fourier Art Artifact', cardWidth / 2, margin + 25);
+        
+        // 枠線
+        cardCtx.strokeStyle = '#333333';
+        cardCtx.lineWidth = 2;
+        cardCtx.strokeRect(artX - 2, artY - 2, artSize + 4, artHeight + 4);
+        
+        // アート画像描画
+        cardCtx.drawImage(artCanvas, artX, artY, artSize, artHeight);
+        
+        // QRコード描画
+        if (qrResult) {
+          cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrDisplaySize, qrDisplaySize);
+          
+          // QRラベル
+          cardCtx.fillStyle = '#666666';
+          cardCtx.font = '12px Arial, sans-serif';
+          cardCtx.textAlign = 'center';
+          cardCtx.fillText('Scan to restore', qrX + qrDisplaySize / 2, qrY + qrDisplaySize + 15);
+          
+          // QR情報表示
+          cardCtx.fillStyle = '#999999';
+          cardCtx.font = '10px Arial, sans-serif';
+          cardCtx.fillText(`QR Ver.${qrResult.version}`, qrX + qrDisplaySize / 2, qrY + qrDisplaySize + 28);
+        } else {
+          // QR生成失敗時のメッセージ
+          cardCtx.fillStyle = '#cc0000';
+          cardCtx.font = 'bold 14px Arial, sans-serif';
+          cardCtx.textAlign = 'center';
+          cardCtx.fillText('QR Code generation failed (Data too large)', cardWidth / 2, artY + artHeight + 50);
+          cardCtx.fillStyle = '#666666';
+          cardCtx.font = '12px Arial, sans-serif';
+          cardCtx.fillText('URL is valid but too long for QR code.', cardWidth / 2, artY + artHeight + 70);
+        }
+        
+        // Rosetta Text描画
+        const rosettaX = margin;
+        
+        cardCtx.fillStyle = '#333333';
+        cardCtx.font = 'bold 14px monospace';
+        cardCtx.textAlign = 'left';
+        cardCtx.fillText('=== ROSETTA STONE FOR FUTURE ===', rosettaX, rosettaY);
+        
+        cardCtx.font = '12px monospace';
+        cardCtx.fillStyle = '#555555';
+        
+        let lineY = rosettaY + 20;
+        for (const line of rosettaLines) {
+          cardCtx.fillText(line, rosettaX, lineY);
+          lineY += rosettaLineHeight;
+        }
+        
+        // フッター
+        cardCtx.fillStyle = '#888888';
+        cardCtx.font = '10px Arial, sans-serif';
+        cardCtx.textAlign = 'center';
+        cardCtx.fillText('Generated by FourierPicture | github.com/milky1210/FourierPicture', cardWidth / 2, cardHeight - 15);
+        cardCtx.fillText(`Created: ${new Date().toISOString().split('T')[0]}`, cardWidth / 2, cardHeight - 30);
+        
+        return shareUrl;
+      } catch (e) {
+        console.error("Error generating artifact card:", e);
+        alert("カード生成中にエラーが発生しました: " + e.message);
+        return null;
       }
-      
-      // Rosetta Text（復元のための数式情報）
-      const rosettaY = artY + artHeight + 50;
-      const rosettaX = margin;
-      
-      cardCtx.fillStyle = '#333333';
-      cardCtx.font = 'bold 14px monospace';
-      cardCtx.textAlign = 'left';
-      cardCtx.fillText('=== ROSETTA STONE FOR FUTURE ===', rosettaX, rosettaY);
-      
-      cardCtx.font = '12px monospace';
-      cardCtx.fillStyle = '#555555';
-      
-      const rosettaLines = [
-        'Format: IDFT (Real part only) of X, Y, Pen',
-        'Formula: v(t) = (1/N) * Σ Re(Fk * exp(i*2*π*k*t))',
-        '',
-        'Data structure: { n: N, k: [indices], d: [coeffs] }',
-        '  - N: Original point count',
-        '  - k: Selected frequency indices (sorted by amplitude)',
-        '  - d: [X coeffs, Y coeffs, Pen coeffs]',
-        '       Each: [Re0, Im0, Re1, Im1, ...]',
-        '',
-        'To reconstruct:',
-        '  1. Decode Base64 from URL parameter "d"',
-        '  2. Parse JSON to get {n, k, d}',
-        '  3. For t ∈ [0,1), compute:',
-        '     x(t) = Σ Re(Fxk * exp(i*2*π*fk*N*t)) / N',
-        '     y(t) = Σ Re(Fyk * exp(i*2*π*fk*N*t)) / N',
-        '     pen(t) = clamp(Σ Re(Fpenk * ...) / N, 0, 1)',
-        '  4. Draw line when pen(t) > 0.5',
-        '',
-        `K = ${coefficients.k.length}, N = ${coefficients.n}`
-      ];
-      
-      let lineY = rosettaY + 20;
-      for (const line of rosettaLines) {
-        cardCtx.fillText(line, rosettaX, lineY);
-        lineY += 16;
-      }
-      
-      // フッター
-      cardCtx.fillStyle = '#888888';
-      cardCtx.font = '10px Arial, sans-serif';
-      cardCtx.textAlign = 'center';
-      cardCtx.fillText('Generated by FourierPicture | github.com/milky1210/FourierPicture', cardWidth / 2, cardHeight - 15);
-      cardCtx.fillText(`Created: ${new Date().toISOString().split('T')[0]}`, cardWidth / 2, cardHeight - 30);
-      
-      return shareUrl;
     }
     
     // QRカード作成ボタン
@@ -2020,8 +2083,8 @@
           const useMultiStroke = multiStrokeMode;
           const inputPoints = useMultiStroke ? points3d : points2d;
           
-          // 共有用の係数を取得（K個に制限、最大50個）
-          const shareK = Math.min(K, 50);
+          // 共有用の係数を取得（ユーザー指定のKを使用）
+          const shareK = K;
           currentCoefficients = getFourierCoefficients(inputPoints, shareK, useMultiStroke);
           
           // shareボタンを有効化
