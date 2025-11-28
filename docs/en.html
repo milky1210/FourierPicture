@@ -1,21 +1,11 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>フーリエ変換による落書き抽象化</title>
+  <title>Fourier Transform Doodle Art</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="alternate" hreflang="en" href="en.html">
   <link rel="alternate" hreflang="ja" href="index.html">
-  <script>
-    // 英語ブラウザを英語ページにリダイレクト
-    (function() {
-      var lang = navigator.language || navigator.userLanguage;
-      if (lang && !lang.startsWith('ja') && !sessionStorage.getItem('langRedirected')) {
-        sessionStorage.setItem('langRedirected', 'true');
-        window.location.href = 'en.html';
-      }
-    })();
-  </script>
+  <link rel="alternate" hreflang="en" href="en.html">
   <style>
     * {
       margin: 0;
@@ -184,60 +174,60 @@
 </head>
 <body>
   <div class="lang-switch">
-    <a href="en.html">🇺🇸 English</a>
+    <a href="index.html">🇯🇵 日本語</a>
   </div>
   
-  <h1>フーリエ変換による落書き抽象化</h1>
+  <h1>Fourier Transform Doodle Art</h1>
   
   <div class="container">
-    <!-- 左パネル: 入力 -->
+    <!-- Left Panel: Input -->
     <div class="left-panel">
-      <div class="panel-title">入力パレット</div>
+      <div class="panel-title">Drawing Canvas</div>
       <canvas id="drawCanvas" width="600" height="400"></canvas>
       
       <div class="controls">
         <div class="control-group">
           <label for="multiStrokeMode">
-            <input type="checkbox" id="multiStrokeMode" checked> 複数ストロークモード
+            <input type="checkbox" id="multiStrokeMode" checked> Multi-stroke Mode
           </label>
         </div>
-        <div class="mode-info" id="modeInfo">複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。</div>
+        <div class="mode-info" id="modeInfo">Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.</div>
         
         <div class="control-group">
-          <label for="kValue">フーリエ項数 K:</label>
+          <label for="kValue">Fourier Terms K:</label>
           <input type="number" id="kValue" value="10" min="1" max="1000">
         </div>
         
         <div class="button-group">
-          <button id="processBtn">フーリエ変換</button>
-          <button id="clearBtn" class="clear">クリア</button>
-          <button id="downloadInputBtn" class="secondary">入力画像をダウンロード</button>
+          <button id="processBtn">Transform</button>
+          <button id="clearBtn" class="clear">Clear</button>
+          <button id="downloadInputBtn" class="secondary">Download Input</button>
         </div>
         
         <div class="control-group">
-          <label for="numFrames">アニメーションフレーム数:</label>
+          <label for="numFrames">Animation Frames:</label>
           <input type="number" id="numFrames" value="30" min="5" max="100">
         </div>
         
         <div class="button-group">
-          <button id="animationBtn" class="animation">アニメーション生成</button>
-          <button id="downloadVideoBtn" class="animation" disabled>動画をダウンロード</button>
+          <button id="animationBtn" class="animation">Generate Animation</button>
+          <button id="downloadVideoBtn" class="animation" disabled>Download Video</button>
         </div>
       </div>
     </div>
     
-    <!-- 右パネル: 出力 -->
+    <!-- Right Panel: Output -->
     <div class="right-panel">
-      <div class="panel-title">生成された画像</div>
+      <div class="panel-title">Generated Image</div>
       <canvas id="reconCanvas" width="600" height="400"></canvas>
       
       <div class="controls">
-        <div class="status" id="statusText">描画してフーリエ変換を実行してください</div>
+        <div class="status" id="statusText">Draw something and click Transform</div>
         <div class="progress-container" id="progressContainer" style="display: none;">
           <div class="progress-bar" id="progressBar"></div>
         </div>
         <div class="button-group">
-          <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
+          <button id="downloadOutputBtn" class="secondary">Download Output</button>
         </div>
       </div>
     </div>
@@ -250,10 +240,9 @@
   
   <script>
     // ============================================
-    // FFT実装（JavaScript版）
+    // FFT Implementation (JavaScript)
     // ============================================
     
-    // 複素数クラス
     class Complex {
       constructor(re, im) {
         this.re = re;
@@ -284,7 +273,6 @@
       }
     }
     
-    // DFT（離散フーリエ変換）- 任意の長さに対応
     function dft(input) {
       const N = input.length;
       const output = [];
@@ -302,7 +290,6 @@
       return output;
     }
     
-    // FFT周波数配列を生成
     function fftfreq(N) {
       const freqs = [];
       for (let i = 0; i < N; i++) {
@@ -315,28 +302,21 @@
       return freqs;
     }
     
-    // 2D版フーリエ再構成
     function reconstructFourier2d(points, K) {
       const N = points.length;
       if (N === 0) return [];
       
-      // 複素数配列に変換
       const z = points.map(p => new Complex(p[0], p[1]));
-      
-      // DFT計算
       const F = dft(z);
       const freqs = fftfreq(N);
       
-      // 振幅でソート
       const amplitudes = F.map(c => c.abs());
       const indices = Array.from({ length: N }, (_, i) => i);
       indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
       
-      // 上位K個を選択
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成
       const numOutputPoints = Math.max(N, 200);
       const result = [];
       
@@ -357,23 +337,19 @@
       return result;
     }
     
-    // 3D版フーリエ再構成（x, y, pen）
     function reconstructFourier3d(points, K) {
       const N = points.length;
       if (N === 0) return [];
       
-      // 各軸を複素数配列に（実部のみ使用）
       const x = points.map(p => new Complex(p[0], 0));
       const y = points.map(p => new Complex(p[1], 0));
       const pen = points.map(p => new Complex(p[2], 0));
       
-      // DFT計算
       const Fx = dft(x);
       const Fy = dft(y);
       const Fpen = dft(pen);
       const freqs = fftfreq(N);
       
-      // 振幅の合計でソート
       const amplitudes = [];
       for (let i = 0; i < N; i++) {
         amplitudes.push(Fx[i].abs() + Fy[i].abs() + Fpen[i].abs());
@@ -381,11 +357,9 @@
       const indices = Array.from({ length: N }, (_, i) => i);
       indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
       
-      // 上位K個を選択
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成
       const numOutputPoints = Math.max(N, 200);
       const result = [];
       
@@ -404,7 +378,6 @@
           sumPen = sumPen.add(Fpen[k].scale(1 / N).mul(exp));
         }
         
-        // pen値を0-1にクリップ
         const penVal = Math.max(0, Math.min(1, sumPen.re));
         result.push([sumX.re, sumY.re, penVal]);
       }
@@ -412,7 +385,6 @@
       return result;
     }
     
-    // アニメーションフレーム生成
     function generateAnimationFrames(points, numFrames, is3d) {
       const N = points.length;
       if (N === 0) return [];
@@ -423,7 +395,6 @@
       const kMin = 2;
       const kMax = N;
       
-      // K値をサンプリング
       const kValuesSet = new Set();
       for (let i = 0; i < numFrames; i++) {
         let k;
@@ -441,7 +412,6 @@
       
       const kValues = Array.from(kValuesSet).sort((a, b) => a - b);
       
-      // フレーム生成
       const frames = [];
       for (const k of kValues) {
         const reconstructed = reconstructFn(points, k);
@@ -452,7 +422,6 @@
         });
       }
       
-      // 最終フレーム
       const finalPoints = reconstructFn(points, N);
       frames.push({
         K: N,
@@ -464,32 +433,26 @@
     }
 
     // ============================================
-    // UI部分
+    // UI
     // ============================================
     
-    // 描画キャンバスの設定
     const canvas = document.getElementById('drawCanvas');
     const ctx = canvas.getContext('2d');
     let drawing = false;
     
-    // 点群データ
     let currentStroke = [];
     let strokes = [];
     
-    // モード
     let multiStrokeMode = true;
 
-    // 再構成キャンバスの設定
     const reconCanvas = document.getElementById('reconCanvas');
     const rctx = reconCanvas.getContext('2d');
     
-    // アニメーション用
     let animationFrames = [];
     let currentFrameIndex = 0;
     let isPlaying = false;
     let animationId = null;
 
-    // 背景を白で塗りつぶす
     function initCanvas(context, canvasElement) {
       context.fillStyle = 'white';
       context.fillRect(0, 0, canvasElement.width, canvasElement.height);
@@ -507,7 +470,6 @@
       document.getElementById('progressBar').style.width = percent + '%';
     }
 
-    // 入力キャンバスを再描画
     function redrawInputCanvas() {
       initCanvas(ctx, canvas);
       
@@ -536,7 +498,6 @@
       }
     }
 
-    // 3D点群を生成
     function generatePoints3d() {
       const allStrokes = [...strokes];
       if (currentStroke.length > 0) {
@@ -584,7 +545,6 @@
       return result;
     }
 
-    // 2D点群を生成
     function generatePoints2d() {
       const allStrokes = [...strokes];
       if (currentStroke.length > 0) {
@@ -603,18 +563,16 @@
     initCanvas(ctx, canvas);
     initCanvas(rctx, reconCanvas);
 
-    // モード切り替え
     document.getElementById('multiStrokeMode').addEventListener('change', (e) => {
       multiStrokeMode = e.target.checked;
       const modeInfo = document.getElementById('modeInfo');
       if (multiStrokeMode) {
-        modeInfo.textContent = '複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。';
+        modeInfo.textContent = 'Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.';
       } else {
-        modeInfo.textContent = '一筆書きモード: 描くたびにリセットされます';
+        modeInfo.textContent = 'Single-stroke Mode: Canvas resets on each new stroke';
       }
     });
 
-    // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
       
@@ -665,7 +623,6 @@
       drawing = false;
     });
 
-    // タッチイベント
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       drawing = true;
@@ -713,7 +670,6 @@
       drawing = false;
     });
 
-    // 3D点群を描画
     const PEN_THRESHOLD = 0.5;
     
     function drawPoints3d(context, canvasEl, pts) {
@@ -743,7 +699,6 @@
       }
     }
 
-    // 2D点群を描画
     function drawPoints2d(context, canvasEl, pts, color = 'red') {
       initCanvas(context, canvasEl);
       if (pts.length > 0) {
@@ -758,7 +713,6 @@
       }
     }
 
-    // 点群を描画
     function drawPoints(context, canvasEl, pts) {
       if (pts.length === 0) return;
       
@@ -769,7 +723,6 @@
       }
     }
 
-    // クリアボタン
     document.getElementById('clearBtn').addEventListener('click', () => {
       strokes = [];
       currentStroke = [];
@@ -783,12 +736,10 @@
       initCanvas(ctx, canvas);
       initCanvas(rctx, reconCanvas);
       document.getElementById('downloadVideoBtn').disabled = true;
-      updateStatus('描画してフーリエ変換を実行してください');
+      updateStatus('Draw something and click Transform');
     });
 
-    // フーリエ変換ボタン
     document.getElementById('processBtn').addEventListener('click', () => {
-      // アニメーションを停止
       if (animationId) {
         cancelAnimationFrame(animationId);
         clearTimeout(animationId);
@@ -801,22 +752,21 @@
       const points3d = generatePoints3d();
       
       if (points2d.length === 0) {
-        alert("まずはキャンバス上に描いてください");
+        alert("Please draw something on the canvas first");
         return;
       }
       
       const K = parseInt(document.getElementById('kValue').value);
       if (isNaN(K) || K < 1) {
-        alert("K の値は1以上の整数を入力してください");
+        alert("K must be a positive integer");
         return;
       }
 
-      updateStatus('処理中...');
+      updateStatus('Processing...');
       
       const useMultiStroke = multiStrokeMode;
       const inputPoints = useMultiStroke ? points3d : points2d;
       
-      // JavaScriptでフーリエ変換を実行
       setTimeout(() => {
         try {
           let result;
@@ -827,29 +777,28 @@
           }
           
           drawPoints(rctx, reconCanvas, result);
-          const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
-          updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${inputPoints.length}${strokeInfo})`);
+          const strokeInfo = useMultiStroke ? `, Strokes: ${strokes.length}` : '';
+          updateStatus(`Transform complete (K=${K}, Points: ${inputPoints.length}${strokeInfo})`);
         } catch (error) {
           console.error("Error:", error);
-          alert("エラーが発生しました: " + error.message);
-          updateStatus('エラーが発生しました');
+          alert("An error occurred: " + error.message);
+          updateStatus('Error occurred');
         }
       }, 10);
     });
 
-    // アニメーション生成ボタン
     document.getElementById('animationBtn').addEventListener('click', () => {
       const points2d = generatePoints2d();
       const points3d = generatePoints3d();
       
       if (points2d.length === 0) {
-        alert("まずはキャンバス上に描いてください");
+        alert("Please draw something on the canvas first");
         return;
       }
       
       const numFrames = parseInt(document.getElementById('numFrames').value);
       if (isNaN(numFrames) || numFrames < 5) {
-        alert("フレーム数は5以上の整数を入力してください");
+        alert("Frame count must be at least 5");
         return;
       }
 
@@ -859,20 +808,19 @@
         animationId = null;
       }
 
-      updateStatus('アニメーションデータを生成中...');
+      updateStatus('Generating animation...');
       showProgress(true);
       setProgress(0);
 
       const useMultiStroke = multiStrokeMode;
       const inputPoints = useMultiStroke ? points3d : points2d;
 
-      // JavaScriptでフレーム生成
       setTimeout(() => {
         try {
           animationFrames = generateAnimationFrames(inputPoints, numFrames, useMultiStroke);
           
           if (animationFrames.length === 0) {
-            updateStatus('アニメーションデータがありません');
+            updateStatus('No animation data');
             showProgress(false);
             return;
           }
@@ -881,14 +829,14 @@
           isPlaying = true;
           document.getElementById('downloadVideoBtn').disabled = false;
           
-          updateStatus(`アニメーション再生中 (${animationFrames.length}フレーム)`);
+          updateStatus(`Playing animation (${animationFrames.length} frames)`);
           
           playAnimation();
           
         } catch (error) {
           console.error("Error:", error);
-          alert("エラーが発生しました: " + error.message);
-          updateStatus('エラーが発生しました');
+          alert("An error occurred: " + error.message);
+          updateStatus('Error occurred');
           showProgress(false);
         }
       }, 10);
@@ -904,9 +852,9 @@
       setProgress(progress);
       
       if (frame.isFinal) {
-        updateStatus(`完成！ K = ${frame.K} (全成分)`);
+        updateStatus(`Complete! K = ${frame.K} (all components)`);
       } else {
-        updateStatus(`K = ${frame.K} (フレーム ${currentFrameIndex + 1}/${animationFrames.length})`);
+        updateStatus(`K = ${frame.K} (Frame ${currentFrameIndex + 1}/${animationFrames.length})`);
       }
       
       currentFrameIndex++;
@@ -921,10 +869,9 @@
       }, delay);
     }
 
-    // 動画ダウンロードボタン
     document.getElementById('downloadVideoBtn').addEventListener('click', async () => {
       if (animationFrames.length === 0) {
-        alert("まずアニメーションを生成してください");
+        alert("Please generate an animation first");
         return;
       }
 
@@ -935,7 +882,7 @@
         animationId = null;
       }
 
-      updateStatus('動画を生成中...');
+      updateStatus('Generating video...');
       showProgress(true);
       setProgress(0);
 
@@ -962,7 +909,7 @@
           link.click();
           URL.revokeObjectURL(url);
           
-          updateStatus('動画のダウンロードが完了しました');
+          updateStatus('Video download complete');
           showProgress(false);
           
           isPlaying = true;
@@ -985,8 +932,8 @@
       } catch (error) {
         console.error("Error:", error);
         
-        alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
-        updateStatus('動画生成に失敗しました');
+        alert("Error generating video. Your browser may not support WebM format.");
+        updateStatus('Video generation failed');
         showProgress(false);
         
         isPlaying = true;
@@ -994,7 +941,6 @@
       }
     });
 
-    // 入力画像ダウンロード
     document.getElementById('downloadInputBtn').addEventListener('click', () => {
       const link = document.createElement('a');
       link.download = 'input_image.png';
@@ -1002,7 +948,6 @@
       link.click();
     });
 
-    // 生成画像ダウンロード
     document.getElementById('downloadOutputBtn').addEventListener('click', () => {
       const link = document.createElement('a');
       link.download = 'fourier_image.png';
