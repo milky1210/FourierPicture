@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="alternate" hreflang="en" href="en.html">
   <link rel="alternate" hreflang="ja" href="index.html">
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
   <script>
     // 英語ブラウザを英語ページにリダイレクト
     (function() {
@@ -127,10 +128,58 @@
     button.animation:hover {
       background-color: #7B1FA2;
     }
+    button.share {
+      background-color: #FF9800;
+    }
+    button.share:hover {
+      background-color: #F57C00;
+    }
     .button-group {
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.7);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 90%;
+      max-height: 90%;
+      overflow: auto;
+      text-align: center;
+    }
+    .modal-content h2 {
+      margin-bottom: 15px;
+      color: #333;
+    }
+    .modal-content canvas {
+      border: 1px solid #ccc;
+      cursor: default;
+    }
+    .modal-buttons {
+      margin-top: 15px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .modal-close {
+      background-color: #666;
+    }
+    .modal-close:hover {
+      background-color: #555;
     }
     .status {
       font-size: 14px;
@@ -238,7 +287,21 @@
         </div>
         <div class="button-group">
           <button id="downloadOutputBtn" class="secondary">生成画像をダウンロード</button>
+          <button id="shareBtn" class="share" disabled>QRカード作成</button>
         </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- QRカードモーダル -->
+  <div id="shareModal" class="modal-overlay">
+    <div class="modal-content">
+      <h2>📜 アーティファクト（恒久保存カード）</h2>
+      <canvas id="cardCanvas" width="800" height="900"></canvas>
+      <div class="modal-buttons">
+        <button id="downloadCardBtn" class="secondary">カード画像をダウンロード</button>
+        <button id="copyUrlBtn" class="secondary">URLをコピー</button>
+        <button id="closeModalBtn" class="modal-close">閉じる</button>
       </div>
     </div>
   </div>
@@ -462,6 +525,238 @@
       
       return frames;
     }
+
+    // ============================================
+    // データエクスポート/インポート機能
+    // QRコード生成には qrcode-generator CDN ライブラリを使用
+    // ============================================
+    
+    // 数値を指定桁に丸める
+    function roundNumber(num, decimals) {
+      const factor = Math.pow(10, decimals);
+      return Math.round(num * factor) / factor;
+    }
+    
+    // フーリエ係数を取得（共有用にK個に制限）
+    function getFourierCoefficients(points, K, is3d) {
+      const N = points.length;
+      if (N === 0) return null;
+      
+      const actualK = Math.min(K, N);
+      
+      if (is3d) {
+        const x = points.map(p => new Complex(p[0], 0));
+        const y = points.map(p => new Complex(p[1], 0));
+        const pen = points.map(p => new Complex(p[2], 0));
+        
+        const Fx = dft(x);
+        const Fy = dft(y);
+        const Fpen = dft(pen);
+        
+        // 振幅でソート
+        const amplitudes = [];
+        for (let i = 0; i < N; i++) {
+          amplitudes.push(Fx[i].abs() + Fy[i].abs() + Fpen[i].abs());
+        }
+        const indices = Array.from({ length: N }, (_, i) => i);
+        indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+        const selectedIndices = indices.slice(0, actualK);
+        
+        // 係数データ（Re, Im の交互配列）
+        const coeffX = [];
+        const coeffY = [];
+        const coeffPen = [];
+        
+        for (const k of selectedIndices) {
+          coeffX.push(roundNumber(Fx[k].re, 3), roundNumber(Fx[k].im, 3));
+          coeffY.push(roundNumber(Fy[k].re, 3), roundNumber(Fy[k].im, 3));
+          coeffPen.push(roundNumber(Fpen[k].re, 3), roundNumber(Fpen[k].im, 3));
+        }
+        
+        return {
+          f: "v(t)=Sum(Re(Fk*exp(i*2*pi*k*t)))",
+          n: N,
+          k: selectedIndices.map(i => i),
+          d: [coeffX, coeffY, coeffPen]
+        };
+      } else {
+        const z = points.map(p => new Complex(p[0], p[1]));
+        const F = dft(z);
+        
+        const amplitudes = F.map(c => c.abs());
+        const indices = Array.from({ length: N }, (_, i) => i);
+        indices.sort((a, b) => amplitudes[b] - amplitudes[a]);
+        const selectedIndices = indices.slice(0, actualK);
+        
+        const coeffZ = [];
+        for (const k of selectedIndices) {
+          coeffZ.push(roundNumber(F[k].re, 3), roundNumber(F[k].im, 3));
+        }
+        
+        return {
+          f: "z(t)=Sum(Fk*exp(i*2*pi*k*t))",
+          n: N,
+          k: selectedIndices.map(i => i),
+          d: [coeffZ]
+        };
+      }
+    }
+    
+    // 係数データから再構成
+    function reconstructFromCoefficients(data) {
+      const N = data.n;
+      const K = data.k;
+      const is3d = data.d.length === 3;
+      const freqs = fftfreq(N);
+      
+      const numOutputPoints = Math.max(N, 200);
+      const result = [];
+      
+      if (is3d) {
+        const coeffX = data.d[0];
+        const coeffY = data.d[1];
+        const coeffPen = data.d[2];
+        
+        for (let i = 0; i < numOutputPoints; i++) {
+          const t = i / numOutputPoints;
+          let sumX = new Complex(0, 0);
+          let sumY = new Complex(0, 0);
+          let sumPen = new Complex(0, 0);
+          
+          for (let j = 0; j < K.length; j++) {
+            const k = K[j];
+            const freq = freqs[k] * N;
+            const angle = 2 * Math.PI * freq * t;
+            const exp = new Complex(Math.cos(angle), Math.sin(angle));
+            
+            const Fxk = new Complex(coeffX[j * 2], coeffX[j * 2 + 1]);
+            const Fyk = new Complex(coeffY[j * 2], coeffY[j * 2 + 1]);
+            const Fpenk = new Complex(coeffPen[j * 2], coeffPen[j * 2 + 1]);
+            
+            sumX = sumX.add(Fxk.scale(1 / N).mul(exp));
+            sumY = sumY.add(Fyk.scale(1 / N).mul(exp));
+            sumPen = sumPen.add(Fpenk.scale(1 / N).mul(exp));
+          }
+          
+          const penVal = Math.max(0, Math.min(1, sumPen.re));
+          result.push([sumX.re, sumY.re, penVal]);
+        }
+      } else {
+        const coeffZ = data.d[0];
+        
+        for (let i = 0; i < numOutputPoints; i++) {
+          const t = i / numOutputPoints;
+          let sum = new Complex(0, 0);
+          
+          for (let j = 0; j < K.length; j++) {
+            const k = K[j];
+            const freq = freqs[k] * N;
+            const angle = 2 * Math.PI * freq * t;
+            const exp = new Complex(Math.cos(angle), Math.sin(angle));
+            
+            const Fk = new Complex(coeffZ[j * 2], coeffZ[j * 2 + 1]);
+            sum = sum.add(Fk.scale(1 / N).mul(exp));
+          }
+          
+          result.push([sum.re, sum.im]);
+        }
+      }
+      
+      return result;
+    }
+    
+    // データをBase64エンコード
+    function encodeDataToBase64(data) {
+      const jsonStr = JSON.stringify(data);
+      // UTF-8対応のBase64エンコード
+      const utf8Bytes = new TextEncoder().encode(jsonStr);
+      let binaryStr = '';
+      for (const byte of utf8Bytes) {
+        binaryStr += String.fromCharCode(byte);
+      }
+      return btoa(binaryStr);
+    }
+    
+    // Base64からデータをデコード
+    function decodeDataFromBase64(base64Str) {
+      try {
+        const binaryStr = atob(base64Str);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        const jsonStr = new TextDecoder().decode(bytes);
+        return JSON.parse(jsonStr);
+      } catch (e) {
+        console.error('Failed to decode data:', e);
+        return null;
+      }
+    }
+    
+    // 共有URLを生成
+    function generateShareUrl(coefficients) {
+      const encoded = encodeDataToBase64(coefficients);
+      const baseUrl = window.location.origin + window.location.pathname;
+      return baseUrl + '?d=' + encodeURIComponent(encoded);
+    }
+    
+    // URLパラメータからデータを読み込み
+    function loadFromUrlParams() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const dataParam = urlParams.get('d');
+      
+      if (dataParam) {
+        try {
+          const decoded = decodeDataFromBase64(decodeURIComponent(dataParam));
+          if (decoded && decoded.d && decoded.n && decoded.k) {
+            return decoded;
+          }
+        } catch (e) {
+          console.error('Failed to load data from URL:', e);
+        }
+      }
+      return null;
+    }
+    
+    // QRコードを生成してCanvasに描画
+    function generateQRCode(url, targetCanvas, cellSize) {
+      try {
+        const qr = qrcode(0, 'L'); // 自動バージョン, 低誤り訂正
+        qr.addData(url);
+        qr.make();
+        
+        const ctx = targetCanvas.getContext('2d');
+        const moduleCount = qr.getModuleCount();
+        const margin = cellSize * 2;
+        const size = moduleCount * cellSize + margin * 2;
+        
+        targetCanvas.width = size;
+        targetCanvas.height = size;
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+        
+        for (let row = 0; row < moduleCount; row++) {
+          for (let col = 0; col < moduleCount; col++) {
+            ctx.fillStyle = qr.isDark(row, col) ? '#000000' : '#ffffff';
+            ctx.fillRect(
+              col * cellSize + margin,
+              row * cellSize + margin,
+              cellSize,
+              cellSize
+            );
+          }
+        }
+        
+        return { width: size, height: size };
+      } catch (e) {
+        console.error('QR code generation failed:', e);
+        return null;
+      }
+    }
+    
+    // 現在の係数データ（共有用）
+    let currentCoefficients = null;
 
     // ============================================
     // UI部分
@@ -1008,6 +1303,421 @@
       link.download = 'fourier_image.png';
       link.href = reconCanvas.toDataURL('image/png');
       link.click();
+    });
+
+    // ============================================
+    // QRカード生成・共有機能
+    // ============================================
+    
+    const shareModal = document.getElementById('shareModal');
+    const cardCanvas = document.getElementById('cardCanvas');
+    const cardCtx = cardCanvas.getContext('2d');
+    let currentShareUrl = '';
+    
+    // QRカード画像を生成
+    function generateArtifactCard(artCanvas, coefficients) {
+      const shareUrl = generateShareUrl(coefficients);
+      currentShareUrl = shareUrl;
+      
+      // カードサイズ設定
+      const cardWidth = 800;
+      const cardHeight = 1000;
+      const margin = 30;
+      const artSize = 500;
+      const qrSize = 180;
+      
+      cardCanvas.width = cardWidth;
+      cardCanvas.height = cardHeight;
+      
+      // 背景
+      cardCtx.fillStyle = '#ffffff';
+      cardCtx.fillRect(0, 0, cardWidth, cardHeight);
+      
+      // タイトル
+      cardCtx.fillStyle = '#333333';
+      cardCtx.font = 'bold 24px Arial, sans-serif';
+      cardCtx.textAlign = 'center';
+      cardCtx.fillText('Fourier Art Artifact', cardWidth / 2, margin + 25);
+      
+      // アート画像を中央に配置
+      const artX = (cardWidth - artSize) / 2;
+      const artY = margin + 50;
+      
+      // 枠線
+      cardCtx.strokeStyle = '#333333';
+      cardCtx.lineWidth = 2;
+      cardCtx.strokeRect(artX - 2, artY - 2, artSize + 4, artSize * (artCanvas.height / artCanvas.width) + 4);
+      
+      // アート画像描画
+      const artHeight = artSize * (artCanvas.height / artCanvas.width);
+      cardCtx.drawImage(artCanvas, artX, artY, artSize, artHeight);
+      
+      // QRコード生成
+      const tempQrCanvas = document.createElement('canvas');
+      const qrResult = generateQRCode(shareUrl, tempQrCanvas, 4);
+      
+      if (qrResult) {
+        // QRコードを右下に配置
+        const qrX = cardWidth - margin - qrSize;
+        const qrY = artY + artHeight + 30;
+        cardCtx.drawImage(tempQrCanvas, qrX, qrY, qrSize, qrSize);
+        
+        // QRラベル
+        cardCtx.fillStyle = '#666666';
+        cardCtx.font = '12px Arial, sans-serif';
+        cardCtx.textAlign = 'center';
+        cardCtx.fillText('Scan to restore', qrX + qrSize / 2, qrY + qrSize + 15);
+      }
+      
+      // Rosetta Text（復元のための数式情報）
+      const rosettaY = artY + artHeight + 50;
+      const rosettaX = margin;
+      
+      cardCtx.fillStyle = '#333333';
+      cardCtx.font = 'bold 14px monospace';
+      cardCtx.textAlign = 'left';
+      cardCtx.fillText('=== ROSETTA STONE FOR FUTURE ===', rosettaX, rosettaY);
+      
+      cardCtx.font = '12px monospace';
+      cardCtx.fillStyle = '#555555';
+      
+      const rosettaLines = [
+        'Format: IDFT (Real part only) of X, Y, Pen',
+        'Formula: v(t) = (1/N) * Σ Re(Fk * exp(i*2*π*k*t))',
+        '',
+        'Data structure: { n: N, k: [indices], d: [coeffs] }',
+        '  - N: Original point count',
+        '  - k: Selected frequency indices (sorted by amplitude)',
+        '  - d: [X coeffs, Y coeffs, Pen coeffs]',
+        '       Each: [Re0, Im0, Re1, Im1, ...]',
+        '',
+        'To reconstruct:',
+        '  1. Decode Base64 from URL parameter "d"',
+        '  2. Parse JSON to get {n, k, d}',
+        '  3. For t ∈ [0,1), compute:',
+        '     x(t) = Σ Re(Fxk * exp(i*2*π*fk*N*t)) / N',
+        '     y(t) = Σ Re(Fyk * exp(i*2*π*fk*N*t)) / N',
+        '     pen(t) = clamp(Σ Re(Fpenk * ...) / N, 0, 1)',
+        '  4. Draw line when pen(t) > 0.5',
+        '',
+        `K = ${coefficients.k.length}, N = ${coefficients.n}`
+      ];
+      
+      let lineY = rosettaY + 20;
+      for (const line of rosettaLines) {
+        cardCtx.fillText(line, rosettaX, lineY);
+        lineY += 16;
+      }
+      
+      // フッター
+      cardCtx.fillStyle = '#888888';
+      cardCtx.font = '10px Arial, sans-serif';
+      cardCtx.textAlign = 'center';
+      cardCtx.fillText('Generated by FourierPicture | github.com/milky1210/FourierPicture', cardWidth / 2, cardHeight - 15);
+      cardCtx.fillText(`Created: ${new Date().toISOString().split('T')[0]}`, cardWidth / 2, cardHeight - 30);
+      
+      return shareUrl;
+    }
+    
+    // QRカード作成ボタン
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      if (!currentCoefficients) {
+        alert('まずフーリエ変換を実行してください');
+        return;
+      }
+      
+      generateArtifactCard(reconCanvas, currentCoefficients);
+      shareModal.style.display = 'flex';
+    });
+    
+    // カードダウンロード
+    document.getElementById('downloadCardBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'fourier_artifact_card.png';
+      link.href = cardCanvas.toDataURL('image/png');
+      link.click();
+    });
+    
+    // URLコピー
+    document.getElementById('copyUrlBtn').addEventListener('click', async () => {
+      if (currentShareUrl) {
+        try {
+          await navigator.clipboard.writeText(currentShareUrl);
+          alert('URLをクリップボードにコピーしました');
+        } catch (e) {
+          // フォールバック
+          const textArea = document.createElement('textarea');
+          textArea.value = currentShareUrl;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          alert('URLをクリップボードにコピーしました');
+        }
+      }
+    });
+    
+    // モーダルを閉じる
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      shareModal.style.display = 'none';
+    });
+    
+    // モーダル外クリックで閉じる
+    shareModal.addEventListener('click', (e) => {
+      if (e.target === shareModal) {
+        shareModal.style.display = 'none';
+      }
+    });
+    
+    // ============================================
+    // URLパラメータからの復元（ビューアーモード）
+    // ============================================
+    
+    // 共有データからアニメーションフレームを生成
+    function generateAnimationFramesFromCoefficients(data, numFrames) {
+      const K = data.k.length;
+      const is3d = data.d.length === 3;
+      
+      if (K === 0) return [];
+      if (K < 2) {
+        const points = reconstructFromCoefficients(data);
+        return [{ K: K, points: points, isFinal: true }];
+      }
+      
+      const kMin = 2;
+      const kMax = K;
+      
+      const kValuesSet = new Set();
+      for (let i = 0; i < numFrames; i++) {
+        let k;
+        if (numFrames === 1) {
+          k = kMax;
+        } else {
+          const t = i / (numFrames - 1);
+          const tAdjusted = Math.pow(t, 0.6);
+          const logK = Math.log(kMin) + (Math.log(kMax) - Math.log(kMin)) * tAdjusted;
+          k = Math.round(Math.exp(logK));
+        }
+        k = Math.max(kMin, Math.min(k, kMax));
+        kValuesSet.add(k);
+      }
+      
+      const kValues = Array.from(kValuesSet).sort((a, b) => a - b);
+      
+      const frames = [];
+      for (const k of kValues) {
+        // k個の係数だけを使用
+        const partialData = {
+          f: data.f,
+          n: data.n,
+          k: data.k.slice(0, k),
+          d: data.d.map(arr => arr.slice(0, k * 2))
+        };
+        const reconstructed = reconstructFromCoefficients(partialData);
+        frames.push({
+          K: k,
+          points: reconstructed,
+          isFinal: false
+        });
+      }
+      
+      // 最終フレーム（全係数使用）
+      const finalPoints = reconstructFromCoefficients(data);
+      frames.push({
+        K: K,
+        points: finalPoints,
+        isFinal: true
+      });
+      
+      return frames;
+    }
+    
+    // ビューアーモードの初期化
+    function initViewerMode(data) {
+      const is3d = data.d.length === 3;
+      
+      // 左パネルを非表示にし、右パネルを拡大
+      document.querySelector('.left-panel').style.display = 'none';
+      document.querySelector('.right-panel').style.flex = '1';
+      document.querySelector('.right-panel .panel-title').textContent = '共有されたフーリエアート';
+      
+      // ボタンの表示を変更
+      document.getElementById('shareBtn').style.display = 'none';
+      
+      // 新しいボタンを追加
+      const buttonGroup = document.querySelector('.right-panel .button-group');
+      
+      // アニメーション再生ボタン
+      const playBtn = document.createElement('button');
+      playBtn.id = 'viewerPlayBtn';
+      playBtn.className = 'animation';
+      playBtn.textContent = 'アニメーション再生';
+      buttonGroup.appendChild(playBtn);
+      
+      // 動画ダウンロードボタン
+      const videoBtn = document.createElement('button');
+      videoBtn.id = 'viewerVideoBtn';
+      videoBtn.className = 'animation';
+      videoBtn.textContent = '動画をダウンロード';
+      videoBtn.disabled = true;
+      buttonGroup.appendChild(videoBtn);
+      
+      // 新規作成リンク
+      const newBtn = document.createElement('button');
+      newBtn.className = 'secondary';
+      newBtn.textContent = '新規作成';
+      newBtn.addEventListener('click', () => {
+        window.location.href = window.location.pathname;
+      });
+      buttonGroup.appendChild(newBtn);
+      
+      // 初期描画
+      const points = reconstructFromCoefficients(data);
+      drawPoints(rctx, reconCanvas, points);
+      updateStatus(`復元完了 (K=${data.k.length}, N=${data.n})`);
+      
+      // 係数データを保存（QRカード生成用）
+      currentCoefficients = data;
+      document.getElementById('shareBtn').disabled = false;
+      
+      // アニメーション再生
+      playBtn.addEventListener('click', () => {
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          clearTimeout(animationId);
+          animationId = null;
+        }
+        
+        animationFrames = generateAnimationFramesFromCoefficients(data, 30);
+        
+        if (animationFrames.length === 0) {
+          updateStatus('アニメーションデータがありません');
+          return;
+        }
+        
+        currentFrameIndex = 0;
+        isPlaying = true;
+        videoBtn.disabled = false;
+        
+        showProgress(true);
+        updateStatus(`アニメーション再生中 (${animationFrames.length}フレーム)`);
+        playAnimation();
+      });
+      
+      // 動画ダウンロード
+      videoBtn.addEventListener('click', async () => {
+        if (animationFrames.length === 0) {
+          // アニメーションが未生成の場合は生成
+          animationFrames = generateAnimationFramesFromCoefficients(data, 30);
+        }
+        
+        if (animationFrames.length === 0) {
+          alert('アニメーションデータがありません');
+          return;
+        }
+        
+        isPlaying = false;
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          clearTimeout(animationId);
+          animationId = null;
+        }
+        
+        updateStatus('動画を生成中...');
+        showProgress(true);
+        setProgress(0);
+        
+        try {
+          const stream = reconCanvas.captureStream(30);
+          const mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: 5000000
+          });
+          
+          const chunks = [];
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunks.push(e.data);
+            }
+          };
+          
+          mediaRecorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'fourier_animation.webm';
+            link.click();
+            URL.revokeObjectURL(url);
+            
+            updateStatus('動画のダウンロードが完了しました');
+            showProgress(false);
+            
+            // 最終フレームを表示
+            const finalPoints = reconstructFromCoefficients(data);
+            drawPoints(rctx, reconCanvas, finalPoints);
+          };
+          
+          mediaRecorder.start();
+          
+          for (let i = 0; i < animationFrames.length; i++) {
+            const frame = animationFrames[i];
+            drawPoints(rctx, reconCanvas, frame.points);
+            setProgress(((i + 1) / animationFrames.length) * 100);
+            
+            const delay = frame.isFinal ? 3000 : 100;
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          mediaRecorder.stop();
+          
+        } catch (error) {
+          console.error("Error:", error);
+          alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
+          updateStatus('動画生成に失敗しました');
+          showProgress(false);
+        }
+      });
+    }
+    
+    // ============================================
+    // 初期化
+    // ============================================
+    
+    // ページ読み込み時にURLパラメータをチェック
+    window.addEventListener('load', () => {
+      const sharedData = loadFromUrlParams();
+      
+      if (sharedData) {
+        // ビューアーモードで起動
+        initViewerMode(sharedData);
+      } else {
+        // 通常モード - shareボタンは変換後に有効化
+        document.getElementById('shareBtn').disabled = true;
+      }
+    });
+    
+    // フーリエ変換時に係数を保存（元のprocessBtnリスナーを拡張）
+    const originalProcessHandler = document.getElementById('processBtn').onclick;
+    document.getElementById('processBtn').addEventListener('click', () => {
+      // フーリエ変換実行後に係数を計算
+      setTimeout(() => {
+        const points3d = generatePoints3d();
+        const points2d = generatePoints2d();
+        
+        if (points2d.length > 0) {
+          const K = parseInt(document.getElementById('kValue').value);
+          const useMultiStroke = multiStrokeMode;
+          const inputPoints = useMultiStroke ? points3d : points2d;
+          
+          // 共有用の係数を取得（K個に制限、最大50個）
+          const shareK = Math.min(K, 50);
+          currentCoefficients = getFourierCoefficients(inputPoints, shareK, useMultiStroke);
+          
+          // shareボタンを有効化
+          document.getElementById('shareBtn').disabled = false;
+        }
+      }, 100);
     });
   </script>
 </body>
