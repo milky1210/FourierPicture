@@ -1,42 +1,51 @@
 # FourierPicture
 
-落書きをフーリエ変換で抽象化するWebアプリ
+A web app that transforms doodles into abstract art using Fourier transforms.
 
-👉 **[デモを試す](https://milky1210.github.io/FourierPicture/)**
+👉 **[Try the Demo](https://milky1210.github.io/FourierPicture/)**
 
-![スクリーンショット](image/README/1764253760039.png)
+![Screenshot](image/README/1764253760039.png)
 
-## 特徴
+## Features
 
-| 機能 | 説明 |
-|------|------|
-| 🎨 複数ストローク | 複数の線を描いて一つの絵に |
-| 🔄 フーリエ変換 | 指定した項数(K)で再構成 |
-| 🎬 アニメーション | K=2から徐々に項数を増やして再構成過程を可視化 |
-| 📹 動画出力 | WebM形式で保存可能 |
-| 📱 モバイル対応 | タッチ操作に対応 |
+| Feature | Description |
+|---------|-------------|
+| 🎨 Multi-stroke | Draw multiple lines to create a single image |
+| 🔄 Fourier Transform | Reconstruct with specified number of terms (K) |
+| 🎬 Animation | Visualize reconstruction from K=2 to full resolution |
+| 📹 Video Export | Save as WebM format |
+| 📱 Mobile Support | Touch-enabled |
 
-## 使い方
+## How to Use
 
-1. 左のキャンバスに絵を描く
-2. フーリエ項数(K)を設定
-3. 「フーリエ変換」または「アニメーション生成」をクリック
-4. 右のキャンバスに再構成された絵が表示される
+1. Draw on the left canvas
+2. Set the number of Fourier terms (K)
+3. Click "Transform" or "Generate Animation"
+4. View the reconstructed image on the right canvas
 
-## 仕組み
+## How It Works
 
-描いた点列を複素数 $z = x + iy$ として離散フーリエ変換(DFT)し、振幅の大きい上位K個の周波数成分のみで再構成します。Kが小さいほど抽象的な形になり、大きくすると元の絵に近づきます。
+The point sequence is treated as complex numbers $z = x + iy$ and transformed using Discrete Fourier Transform (DFT). Only the top K frequency components (by amplitude) are used for reconstruction. Smaller K values produce more abstract shapes, while larger values approach the original drawing.
 
-詳しい数学的背景は [技術資料 (TECHNICAL.md)](TECHNICAL.md) を参照してください。
+For detailed mathematical background, see [Technical Documentation (TECHNICAL.md)](TECHNICAL.md).
 
-## ローカルで実行
+## Run Locally
 
-```
+```bash
 git clone https://github.com/milky1210/FourierPicture.git
 ```
 
-`docs/index.html` をブラウザで開くだけで動作します。
+Simply open `docs/index.html` in your browser.
 
-## ライセンス
+## Publication Info
+
+- **First Published**: 2025-11-27 (See [git history](https://github.com/milky1210/FourierPicture/commits/main) for precise timestamp)
+- **Author**: [milky1210](https://github.com/milky1210)
+
+## License
 
 MIT License
+
+---
+
+[日本語版 README](README.ja.md)
