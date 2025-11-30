@@ -1086,8 +1086,7 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // 3点が直線上にあるかチェック(点p2が直線p1-p3上にあるか)
-    // 点から直線への距離を計算
+    // 点p2から直線p1-p3への垂直距離を計算
     function getPointToLineDistance(p1, p2, p3) {
       const dx = p3[0] - p1[0];
       const dy = p3[1] - p1[1];

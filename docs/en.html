@@ -1049,8 +1049,7 @@
       return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Check if 3 points are collinear (if p2 is on line p1-p3)
-    // Calculate perpendicular distance from point to line
+    // Calculate perpendicular distance from point p2 to line p1-p3
     function getPointToLineDistance(p1, p2, p3) {
       const dx = p3[0] - p1[0];
       const dy = p3[1] - p1[1];
