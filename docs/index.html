@@ -1072,6 +1072,57 @@
     // モード
     let multiStrokeMode = true;
 
+    // サンプリング制御用パラメータ
+    const SAMPLING_FPS_LIMIT = 60; // FPS上限
+    const SAMPLING_MIN_INTERVAL = 1000 / SAMPLING_FPS_LIMIT; // 最小サンプリング間隔(ms)
+    const SAMPLING_MIN_DISTANCE = 2; // 最小距離(pixel)
+    const COLLINEARITY_THRESHOLD = 0.5; // 直線判定閾値(pixel)
+    let lastSampleTime = 0;
+
+    // 2点間の距離を計算
+    function getDistance(p1, p2) {
+      const dx = p2[0] - p1[0];
+      const dy = p2[1] - p1[1];
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // 3点が直線上にあるかチェック(点p2が直線p1-p3上にあるか)
+    // 点から直線への距離を計算
+    function getPointToLineDistance(p1, p2, p3) {
+      const dx = p3[0] - p1[0];
+      const dy = p3[1] - p1[1];
+      const lineLength = Math.sqrt(dx * dx + dy * dy);
+      if (lineLength === 0) return getDistance(p1, p2);
+      
+      // 点p2から直線p1-p3への垂直距離
+      const cross = Math.abs((p2[0] - p1[0]) * dy - (p2[1] - p1[1]) * dx);
+      return cross / lineLength;
+    }
+
+    // ストローク終了時に直線上の冗長な点を削除
+    function simplifyStroke(stroke) {
+      if (stroke.length <= 2) return stroke;
+      
+      const result = [stroke[0]];
+      
+      for (let i = 1; i < stroke.length - 1; i++) {
+        const prev = result[result.length - 1];
+        const curr = stroke[i];
+        const next = stroke[i + 1];
+        
+        // 点が直線から離れている場合は保持
+        const distance = getPointToLineDistance(prev, curr, next);
+        if (distance > COLLINEARITY_THRESHOLD) {
+          result.push(curr);
+        }
+      }
+      
+      // 最後の点は必ず追加
+      result.push(stroke[stroke.length - 1]);
+      
+      return result;
+    }
+
     // 再構成キャンバスの設定
     const reconCanvas = document.getElementById('reconCanvas');
     const rctx = reconCanvas.getContext('2d');
@@ -1210,6 +1261,7 @@
     // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
+      lastSampleTime = performance.now();
       
       if (!multiStrokeMode) {
         strokes = [];
@@ -1232,11 +1284,24 @@
 
     canvas.addEventListener('mousemove', (e) => {
       if (!drawing) return;
+      
+      // FPS制限チェック
+      const now = performance.now();
+      if (now - lastSampleTime < SAMPLING_MIN_INTERVAL) return;
+      
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const x = (e.clientX - rect.left) * scaleX;
       const y = (e.clientY - rect.top) * scaleY;
+      
+      // 最小距離チェック
+      if (currentStroke.length > 0) {
+        const lastPoint = currentStroke[currentStroke.length - 1];
+        if (getDistance(lastPoint, [x, y]) < SAMPLING_MIN_DISTANCE) return;
+      }
+      
+      lastSampleTime = now;
       currentStroke.push([x, y]);
       ctx.lineTo(x, y);
       ctx.stroke();
@@ -1244,7 +1309,9 @@
 
     canvas.addEventListener('mouseup', () => {
       if (drawing && currentStroke.length > 0) {
-        strokes.push([...currentStroke]);
+        // 直線上の冗長な点を削除してからストロークを保存
+        const simplified = simplifyStroke(currentStroke);
+        strokes.push(simplified);
         currentStroke = [];
       }
       drawing = false;
@@ -1252,7 +1319,9 @@
 
     canvas.addEventListener('mouseleave', () => {
       if (drawing && currentStroke.length > 0) {
-        strokes.push([...currentStroke]);
+        // 直線上の冗長な点を削除してからストロークを保存
+        const simplified = simplifyStroke(currentStroke);
+        strokes.push(simplified);
         currentStroke = [];
       }
       drawing = false;
@@ -1262,6 +1331,7 @@
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       drawing = true;
+      lastSampleTime = performance.now();
       
       if (!multiStrokeMode) {
         strokes = [];
@@ -1286,12 +1356,25 @@
     canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
       if (!drawing) return;
+      
+      // FPS制限チェック
+      const now = performance.now();
+      if (now - lastSampleTime < SAMPLING_MIN_INTERVAL) return;
+      
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const touch = e.touches[0];
       const x = (touch.clientX - rect.left) * scaleX;
       const y = (touch.clientY - rect.top) * scaleY;
+      
+      // 最小距離チェック
+      if (currentStroke.length > 0) {
+        const lastPoint = currentStroke[currentStroke.length - 1];
+        if (getDistance(lastPoint, [x, y]) < SAMPLING_MIN_DISTANCE) return;
+      }
+      
+      lastSampleTime = now;
       currentStroke.push([x, y]);
       ctx.lineTo(x, y);
       ctx.stroke();
@@ -1300,7 +1383,9 @@
     canvas.addEventListener('touchend', (e) => {
       e.preventDefault();
       if (drawing && currentStroke.length > 0) {
-        strokes.push([...currentStroke]);
+        // 直線上の冗長な点を削除してからストロークを保存
+        const simplified = simplifyStroke(currentStroke);
+        strokes.push(simplified);
         currentStroke = [];
       }
       drawing = false;
