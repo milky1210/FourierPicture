@@ -1197,7 +1197,8 @@
           const lastPoint = result[result.length - 1];
           const firstPoint = stroke[0];
           
-          const numInterp = 10;
+          const dist = Math.sqrt(Math.pow(firstPoint[0] - lastPoint[0], 2) + Math.pow(firstPoint[1] - lastPoint[1], 2));
+          const numInterp = Math.floor(dist / 10) + 1;
           for (let i = 1; i <= numInterp; i++) {
             const t = i / numInterp;
             const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
@@ -1215,7 +1216,8 @@
         const lastPoint = result[result.length - 1];
         const firstPoint = result[0];
         
-        const numInterp = 10;
+        const dist = Math.sqrt(Math.pow(firstPoint[0] - lastPoint[0], 2) + Math.pow(firstPoint[1] - lastPoint[1], 2));
+        const numInterp = Math.floor(dist / 10) + 1;
         for (let i = 1; i <= numInterp; i++) {
           const t = i / numInterp;
           const x = lastPoint[0] + (firstPoint[0] - lastPoint[0]) * t;
