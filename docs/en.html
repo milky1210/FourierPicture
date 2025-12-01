@@ -2385,6 +2385,11 @@
     // SVG Import Functions
     // ============================================
     
+    // SVG import constants
+    const DEFAULT_SAMPLE_INTERVAL = 5;  // Default sampling interval (px)
+    const ENDPOINT_TOLERANCE = 0.1;     // Endpoint comparison tolerance (px)
+    const CANVAS_MARGIN = 40;           // Canvas margin (px)
+    
     /**
      * Generate point cloud data from SVG file
      * @param {File} file - SVG file
@@ -2435,7 +2440,7 @@
       tempContainer.appendChild(svgClone);
       
       // Get sampling interval
-      const sampleInterval = parseInt(svgSampleInterval.value) || 5;
+      const sampleInterval = parseInt(svgSampleInterval.value) || DEFAULT_SAMPLE_INTERVAL;
       
       // Get all <path> elements
       const paths = svgClone.querySelectorAll('path');
@@ -2470,8 +2475,8 @@
           // Ensure last point is included
           const endPoint = path.getPointAtLength(totalLength);
           if (x.length === 0 || 
-              Math.abs(x[x.length - 1] - endPoint.x) > 0.1 || 
-              Math.abs(y[y.length - 1] - endPoint.y) > 0.1) {
+              Math.abs(x[x.length - 1] - endPoint.x) > ENDPOINT_TOLERANCE || 
+              Math.abs(y[y.length - 1] - endPoint.y) > ENDPOINT_TOLERANCE) {
             x.push(endPoint.x);
             y.push(endPoint.y);
             pen.push(1);
@@ -2527,10 +2532,9 @@
       // Scale to fit canvas (600x400) with margin
       const canvasWidth = canvas.width;
       const canvasHeight = canvas.height;
-      const margin = 40;
       
-      const scaleX = (canvasWidth - margin * 2) / width;
-      const scaleY = (canvasHeight - margin * 2) / height;
+      const scaleX = (canvasWidth - CANVAS_MARGIN * 2) / width;
+      const scaleY = (canvasHeight - CANVAS_MARGIN * 2) / height;
       const scale = Math.min(scaleX, scaleY);
       
       // Calculate normalized coordinates
@@ -2773,17 +2777,36 @@
       let html = '';
       works.forEach((work, index) => {
         const date = new Date(work.timestamp).toLocaleDateString('en-US');
+        // XSS protection: escape work.name
+        const escapedName = work.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         html += `
           <div class="saved-work-item">
-            <span title="${work.name} (${date})">${work.name}</span>
-            <button class="load-btn" onclick="loadWork(${index})">Load</button>
-            <button class="delete-btn" onclick="deleteWork(${index})">Delete</button>
+            <span title="${escapedName} (${date})">${escapedName}</span>
+            <button class="load-btn" data-action="load" data-index="${index}">Load</button>
+            <button class="delete-btn" data-action="delete" data-index="${index}">Delete</button>
           </div>
         `;
       });
       
       listContainer.innerHTML = html;
     }
+    
+    // Event delegation for saved works list button handling
+    document.getElementById('savedWorksList').addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.tagName !== 'BUTTON') return;
+      
+      const action = target.dataset.action;
+      const index = parseInt(target.dataset.index, 10);
+      
+      if (isNaN(index)) return;
+      
+      if (action === 'load') {
+        loadWork(index);
+      } else if (action === 'delete') {
+        deleteWork(index);
+      }
+    });
     
     // Save button event
     document.getElementById('saveWorkBtn').addEventListener('click', () => {
@@ -2800,10 +2823,6 @@
         alert('Work saved');
       }
     });
-    
-    // Expose functions to global scope (for onclick)
-    window.loadWork = loadWork;
-    window.deleteWork = deleteWork;
   </script>
 </body>
 </html>

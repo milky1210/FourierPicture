@@ -2441,6 +2441,11 @@
     // SVGインポート機能
     // ============================================
     
+    // SVGインポート用定数
+    const DEFAULT_SAMPLE_INTERVAL = 5;  // デフォルトのサンプリング間隔（px）
+    const ENDPOINT_TOLERANCE = 0.1;     // 端点比較の許容誤差（px）
+    const CANVAS_MARGIN = 40;           // キャンバスのマージン（px）
+
     /**
      * SVGファイルから点群データを生成する
      * @param {File} file - SVGファイル
@@ -2491,7 +2496,7 @@
       tempContainer.appendChild(svgClone);
       
       // サンプリング間隔を取得
-      const sampleInterval = parseInt(svgSampleInterval.value) || 5;
+      const sampleInterval = parseInt(svgSampleInterval.value) || DEFAULT_SAMPLE_INTERVAL;
       
       // すべての<path>要素を取得
       const paths = svgClone.querySelectorAll('path');
@@ -2526,8 +2531,8 @@
           // 最後の点を確実に含める
           const endPoint = path.getPointAtLength(totalLength);
           if (x.length === 0 || 
-              Math.abs(x[x.length - 1] - endPoint.x) > 0.1 || 
-              Math.abs(y[y.length - 1] - endPoint.y) > 0.1) {
+              Math.abs(x[x.length - 1] - endPoint.x) > ENDPOINT_TOLERANCE || 
+              Math.abs(y[y.length - 1] - endPoint.y) > ENDPOINT_TOLERANCE) {
             x.push(endPoint.x);
             y.push(endPoint.y);
             pen.push(1);
@@ -2584,10 +2589,9 @@
       // キャンバスは600x400なので、余白を考慮してスケール計算
       const canvasWidth = canvas.width;
       const canvasHeight = canvas.height;
-      const margin = 40; // マージン
       
-      const scaleX = (canvasWidth - margin * 2) / width;
-      const scaleY = (canvasHeight - margin * 2) / height;
+      const scaleX = (canvasWidth - CANVAS_MARGIN * 2) / width;
+      const scaleY = (canvasHeight - CANVAS_MARGIN * 2) / height;
       const scale = Math.min(scaleX, scaleY);
       
       // 正規化された座標を計算
@@ -2830,17 +2834,36 @@
       let html = '';
       works.forEach((work, index) => {
         const date = new Date(work.timestamp).toLocaleDateString('ja-JP');
+        // XSS対策: work.nameをエスケープ
+        const escapedName = work.name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         html += `
           <div class="saved-work-item">
-            <span title="${work.name} (${date})">${work.name}</span>
-            <button class="load-btn" onclick="loadWork(${index})">読込</button>
-            <button class="delete-btn" onclick="deleteWork(${index})">削除</button>
+            <span title="${escapedName} (${date})">${escapedName}</span>
+            <button class="load-btn" data-action="load" data-index="${index}">読込</button>
+            <button class="delete-btn" data-action="delete" data-index="${index}">削除</button>
           </div>
         `;
       });
       
       listContainer.innerHTML = html;
     }
+    
+    // イベント委譲による作品リストのボタンハンドリング
+    document.getElementById('savedWorksList').addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.tagName !== 'BUTTON') return;
+      
+      const action = target.dataset.action;
+      const index = parseInt(target.dataset.index, 10);
+      
+      if (isNaN(index)) return;
+      
+      if (action === 'load') {
+        loadWork(index);
+      } else if (action === 'delete') {
+        deleteWork(index);
+      }
+    });
     
     // 保存ボタンのイベント
     document.getElementById('saveWorkBtn').addEventListener('click', () => {
@@ -2857,10 +2880,6 @@
         alert('作品を保存しました');
       }
     });
-    
-    // 関数をグローバルスコープに公開（onclick用）
-    window.loadWork = loadWork;
-    window.deleteWork = deleteWork;
   </script>
 </body>
 </html>
