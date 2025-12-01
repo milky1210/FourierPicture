@@ -2455,16 +2455,7 @@
           
           if (totalLength === 0) return;
           
-          // Movement from previous path (pen=0)
-          if (pathIndex > 0 && x.length > 0) {
-            const firstPoint = path.getPointAtLength(0);
-            // Connect end of previous path to start of current path with pen=0
-            x.push(firstPoint.x);
-            y.push(firstPoint.y);
-            pen.push(0);
-          }
-          
-          // Sample points along path
+          // Sample points along path (pen=1 for drawing)
           for (let length = 0; length <= totalLength; length += sampleInterval) {
             const point = path.getPointAtLength(length);
             x.push(point.x);
@@ -2480,6 +2471,15 @@
             x.push(endPoint.x);
             y.push(endPoint.y);
             pen.push(1);
+          }
+          
+          // After path ends, if there are more paths, add pen=0 to indicate movement
+          // For all paths except the last, add end point with pen=0 to mark stroke end
+          if (pathIndex < paths.length - 1) {
+            // Add current path's end point with pen=0 (stroke end marker)
+            x.push(endPoint.x);
+            y.push(endPoint.y);
+            pen.push(0);
           }
         } catch (pathErr) {
           console.warn('Error processing path:', pathErr);

@@ -2511,16 +2511,7 @@
           
           if (totalLength === 0) return;
           
-          // 前のパスからの移動（pen=0）
-          if (pathIndex > 0 && x.length > 0) {
-            const firstPoint = path.getPointAtLength(0);
-            // 前のパスの終点と現在のパスの始点をpen=0で接続
-            x.push(firstPoint.x);
-            y.push(firstPoint.y);
-            pen.push(0);
-          }
-          
-          // パス上の点をサンプリング
+          // パス上の点をサンプリング（pen=1で描画）
           for (let length = 0; length <= totalLength; length += sampleInterval) {
             const point = path.getPointAtLength(length);
             x.push(point.x);
@@ -2536,6 +2527,15 @@
             x.push(endPoint.x);
             y.push(endPoint.y);
             pen.push(1);
+          }
+          
+          // パスの終了後、次のパスがある場合はpen=0で移動を示す
+          // 最後のパスでない場合、終点にpen=0を追加してストロークの区切りを明示
+          if (pathIndex < paths.length - 1) {
+            // 現在のパスの終点をpen=0で追加（ストローク終了のマーカー）
+            x.push(endPoint.x);
+            y.push(endPoint.y);
+            pen.push(0);
           }
         } catch (pathErr) {
           console.warn('パスの処理中にエラー:', pathErr);
