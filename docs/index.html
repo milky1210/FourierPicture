@@ -243,11 +243,166 @@
     .qr-hint.ok {
       color: #2e7d32;
     }
+    /* メニュー関連のスタイル */
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .menu-btn {
+      background-color: #607D8B;
+      padding: 8px 16px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .menu-btn:hover {
+      background-color: #546E7A;
+    }
+    .menu-panel {
+      display: none;
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 320px;
+      max-width: 90%;
+      height: 100%;
+      background-color: white;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.2);
+      z-index: 1001;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .menu-panel.open {
+      display: block;
+    }
+    .menu-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
+    .menu-overlay.open {
+      display: block;
+    }
+    .menu-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+    }
+    .menu-header h3 {
+      margin: 0;
+      color: #333;
+    }
+    .menu-close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #666;
+      padding: 0;
+    }
+    .menu-close-btn:hover {
+      color: #333;
+      background: none;
+    }
+    .menu-section {
+      margin-bottom: 20px;
+    }
+    .menu-section h4 {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .menu-item {
+      margin-bottom: 15px;
+    }
+    .menu-item label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+    .menu-item input[type="number"],
+    .menu-item input[type="range"] {
+      width: 100%;
+    }
+    .menu-item input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px dashed #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .menu-item button {
+      width: 100%;
+      margin-bottom: 5px;
+    }
+    .menu-item .range-value {
+      font-size: 12px;
+      color: #888;
+      text-align: right;
+    }
+    .saved-works-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+    .saved-work-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+    }
+    .saved-work-item:last-child {
+      border-bottom: none;
+    }
+    .saved-work-item span {
+      font-size: 12px;
+      color: #333;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .saved-work-item button {
+      width: auto;
+      padding: 4px 8px;
+      font-size: 11px;
+      margin: 0 2px;
+    }
+    .saved-work-item .load-btn {
+      background-color: #4CAF50;
+    }
+    .saved-work-item .delete-btn {
+      background-color: #f44336;
+    }
+    .no-saved-works {
+      padding: 15px;
+      text-align: center;
+      color: #888;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
-  <div class="lang-switch">
-    <a href="en.html">🇺🇸 English</a>
+  <div class="header-bar">
+    <div class="lang-switch">
+      <a href="en.html">🇺🇸 English</a>
+    </div>
+    <button class="menu-btn" id="menuBtn">☰ メニュー</button>
   </div>
   
   <h1>フーリエ変換による落書き抽象化</h1>
@@ -317,6 +472,59 @@
         <button id="downloadCardBtn" class="secondary">カード画像をダウンロード</button>
         <button id="copyUrlBtn" class="secondary">URLをコピー</button>
         <button id="closeModalBtn" class="modal-close">閉じる</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- メニューオーバーレイとパネル -->
+  <div class="menu-overlay" id="menuOverlay"></div>
+  <div class="menu-panel" id="menuPanel">
+    <div class="menu-header">
+      <h3>メニュー</h3>
+      <button class="menu-close-btn" id="menuCloseBtn">&times;</button>
+    </div>
+    
+    <div class="menu-section">
+      <h4>📁 画像インポート</h4>
+      <div class="menu-item">
+        <label for="svgFileInput">SVGファイルを選択:</label>
+        <input type="file" id="svgFileInput" accept=".svg">
+      </div>
+      <div class="menu-item">
+        <label for="svgSampleInterval">サンプリング間隔 (px):</label>
+        <input type="range" id="svgSampleInterval" min="1" max="20" value="5">
+        <div class="range-value"><span id="svgSampleIntervalValue">5</span>px</div>
+      </div>
+    </div>
+    
+    <div class="menu-section">
+      <h4>⚙️ パラメータ調整</h4>
+      <div class="menu-item">
+        <label for="menuKValue">フーリエ項数 K:</label>
+        <input type="number" id="menuKValue" value="10" min="1" max="1000">
+      </div>
+      <div class="menu-item">
+        <label for="menuNumFrames">アニメーションフレーム数:</label>
+        <input type="number" id="menuNumFrames" value="30" min="5" max="100">
+      </div>
+      <div class="menu-item">
+        <label for="menuPenThreshold">ペン閾値:</label>
+        <input type="range" id="menuPenThreshold" min="0" max="100" value="50">
+        <div class="range-value"><span id="menuPenThresholdValue">0.5</span></div>
+      </div>
+    </div>
+    
+    <div class="menu-section">
+      <h4>💾 作品の保存・読み込み</h4>
+      <div class="menu-item">
+        <input type="text" id="saveWorkName" placeholder="作品名を入力..." style="width: 100%; padding: 8px; margin-bottom: 5px;">
+        <button id="saveWorkBtn" class="secondary">現在の作品を保存</button>
+      </div>
+      <div class="menu-item">
+        <label>保存された作品:</label>
+        <div class="saved-works-list" id="savedWorksList">
+          <div class="no-saved-works">保存された作品はありません</div>
+        </div>
       </div>
     </div>
   </div>
@@ -2178,6 +2386,481 @@
         }
       }, 100);
     });
+
+    // ============================================
+    // メニュー機能
+    // ============================================
+    
+    const menuBtn = document.getElementById('menuBtn');
+    const menuPanel = document.getElementById('menuPanel');
+    const menuOverlay = document.getElementById('menuOverlay');
+    const menuCloseBtn = document.getElementById('menuCloseBtn');
+    
+    function openMenu() {
+      menuPanel.classList.add('open');
+      menuOverlay.classList.add('open');
+      // メニューのパラメータを現在の値と同期
+      document.getElementById('menuKValue').value = document.getElementById('kValue').value;
+      document.getElementById('menuNumFrames').value = document.getElementById('numFrames').value;
+      updateSavedWorksList();
+    }
+    
+    function closeMenu() {
+      menuPanel.classList.remove('open');
+      menuOverlay.classList.remove('open');
+    }
+    
+    menuBtn.addEventListener('click', openMenu);
+    menuCloseBtn.addEventListener('click', closeMenu);
+    menuOverlay.addEventListener('click', closeMenu);
+    
+    // パラメータの同期
+    document.getElementById('menuKValue').addEventListener('change', (e) => {
+      document.getElementById('kValue').value = e.target.value;
+    });
+    
+    document.getElementById('menuNumFrames').addEventListener('change', (e) => {
+      document.getElementById('numFrames').value = e.target.value;
+    });
+    
+    // サンプリング間隔の表示更新
+    const svgSampleInterval = document.getElementById('svgSampleInterval');
+    const svgSampleIntervalValue = document.getElementById('svgSampleIntervalValue');
+    svgSampleInterval.addEventListener('input', () => {
+      svgSampleIntervalValue.textContent = svgSampleInterval.value;
+    });
+    
+    // ペン閾値の表示更新と適用
+    const menuPenThreshold = document.getElementById('menuPenThreshold');
+    const menuPenThresholdValue = document.getElementById('menuPenThresholdValue');
+    menuPenThreshold.addEventListener('input', () => {
+      menuPenThresholdValue.textContent = (menuPenThreshold.value / 100).toFixed(2);
+    });
+
+    // ============================================
+    // SVGインポート機能
+    // ============================================
+    
+    /**
+     * SVGファイルから点群データを生成する
+     * @param {File} file - SVGファイル
+     * @returns {Promise<{x: number[], y: number[], pen: number[]}>}
+     */
+    async function importSVG(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+          try {
+            const svgText = e.target.result;
+            const result = parseSVGToPoints(svgText);
+            resolve(result);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        
+        reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
+        reader.readAsText(file);
+      });
+    }
+    
+    /**
+     * SVG文字列をパースして点群データに変換する
+     * @param {string} svgText - SVG文字列
+     * @returns {{x: number[], y: number[], pen: number[]}}
+     */
+    function parseSVGToPoints(svgText) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      
+      // パースエラーをチェック
+      const parseError = doc.querySelector('parsererror');
+      if (parseError) {
+        throw new Error('SVGのパースに失敗しました: ' + parseError.textContent);
+      }
+      
+      // SVGを一時的にDOMに追加してgetTotalLength/getPointAtLengthを使用可能にする
+      const svgElement = doc.documentElement;
+      const tempContainer = document.createElement('div');
+      tempContainer.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0;overflow:hidden;';
+      document.body.appendChild(tempContainer);
+      
+      // SVGをクローンして追加
+      const svgClone = svgElement.cloneNode(true);
+      tempContainer.appendChild(svgClone);
+      
+      // サンプリング間隔を取得
+      const sampleInterval = parseInt(svgSampleInterval.value) || 5;
+      
+      // すべての<path>要素を取得
+      const paths = svgClone.querySelectorAll('path');
+      
+      const x = [];
+      const y = [];
+      const pen = [];
+      
+      paths.forEach((path, pathIndex) => {
+        try {
+          const totalLength = path.getTotalLength();
+          
+          if (totalLength === 0) return;
+          
+          // 前のパスからの移動（pen=0）
+          if (pathIndex > 0 && x.length > 0) {
+            const firstPoint = path.getPointAtLength(0);
+            // 前のパスの終点と現在のパスの始点をpen=0で接続
+            x.push(firstPoint.x);
+            y.push(firstPoint.y);
+            pen.push(0);
+          }
+          
+          // パス上の点をサンプリング
+          for (let length = 0; length <= totalLength; length += sampleInterval) {
+            const point = path.getPointAtLength(length);
+            x.push(point.x);
+            y.push(point.y);
+            pen.push(1);
+          }
+          
+          // 最後の点を確実に含める
+          const endPoint = path.getPointAtLength(totalLength);
+          if (x.length === 0 || 
+              Math.abs(x[x.length - 1] - endPoint.x) > 0.1 || 
+              Math.abs(y[y.length - 1] - endPoint.y) > 0.1) {
+            x.push(endPoint.x);
+            y.push(endPoint.y);
+            pen.push(1);
+          }
+        } catch (pathErr) {
+          console.warn('パスの処理中にエラー:', pathErr);
+        }
+      });
+      
+      // 一時コンテナを削除
+      document.body.removeChild(tempContainer);
+      
+      if (x.length === 0) {
+        throw new Error('SVGから有効なパスが見つかりませんでした。<path>要素が含まれていることを確認してください。');
+      }
+      
+      // 座標の正規化
+      return normalizePoints(x, y, pen);
+    }
+    
+    /**
+     * 点群データを正規化する（センタリングとスケーリング）
+     * @param {number[]} x - X座標配列
+     * @param {number[]} y - Y座標配列
+     * @param {number[]} pen - ペン状態配列
+     * @returns {{x: number[], y: number[], pen: number[]}}
+     */
+    function normalizePoints(x, y, pen) {
+      if (x.length === 0) {
+        return { x: [], y: [], pen: [] };
+      }
+      
+      // Bounding Boxを計算
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      
+      for (let i = 0; i < x.length; i++) {
+        minX = Math.min(minX, x[i]);
+        maxX = Math.max(maxX, x[i]);
+        minY = Math.min(minY, y[i]);
+        maxY = Math.max(maxY, y[i]);
+      }
+      
+      // 重心を計算
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      
+      // サイズを計算
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const maxDimension = Math.max(width, height);
+      
+      // キャンバスサイズに合わせてスケーリング
+      // キャンバスは600x400なので、余白を考慮してスケール計算
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
+      const margin = 40; // マージン
+      
+      const scaleX = (canvasWidth - margin * 2) / width;
+      const scaleY = (canvasHeight - margin * 2) / height;
+      const scale = Math.min(scaleX, scaleY);
+      
+      // 正規化された座標を計算
+      const normalizedX = [];
+      const normalizedY = [];
+      
+      for (let i = 0; i < x.length; i++) {
+        // センタリングしてからスケーリング
+        const nx = (x[i] - centerX) * scale + canvasWidth / 2;
+        const ny = (y[i] - centerY) * scale + canvasHeight / 2;
+        normalizedX.push(nx);
+        normalizedY.push(ny);
+      }
+      
+      return {
+        x: normalizedX,
+        y: normalizedY,
+        pen: pen
+      };
+    }
+    
+    /**
+     * インポートした点群データをストロークデータに変換する
+     * @param {{x: number[], y: number[], pen: number[]}} data - 点群データ
+     */
+    function applyImportedPoints(data) {
+      // 既存のデータをクリア
+      strokes = [];
+      currentStroke = [];
+      
+      // ペンの状態に基づいてストロークを分割
+      let currentStrokeData = [];
+      
+      for (let i = 0; i < data.x.length; i++) {
+        if (data.pen[i] === 1) {
+          currentStrokeData.push([data.x[i], data.y[i]]);
+        } else {
+          // pen=0の場合、現在のストロークを終了して新しいストロークを開始
+          if (currentStrokeData.length > 0) {
+            strokes.push(currentStrokeData);
+            currentStrokeData = [];
+          }
+        }
+      }
+      
+      // 最後のストロークを追加
+      if (currentStrokeData.length > 0) {
+        strokes.push(currentStrokeData);
+      }
+      
+      // 複数ストロークモードを有効化
+      document.getElementById('multiStrokeMode').checked = true;
+      multiStrokeMode = true;
+      document.getElementById('modeInfo').textContent = '複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。';
+      
+      // キャンバスを再描画
+      redrawInputCanvas();
+      
+      updateStatus(`SVGをインポートしました (${strokes.length}ストローク, ${data.x.length}点)`);
+    }
+    
+    // SVGファイル選択イベント
+    document.getElementById('svgFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      if (!file.name.toLowerCase().endsWith('.svg')) {
+        alert('SVGファイルを選択してください');
+        return;
+      }
+      
+      updateStatus('SVGをインポート中...');
+      
+      try {
+        const pointsData = await importSVG(file);
+        applyImportedPoints(pointsData);
+        closeMenu();
+      } catch (err) {
+        console.error('SVGインポートエラー:', err);
+        alert('SVGのインポートに失敗しました: ' + err.message);
+        updateStatus('SVGインポートに失敗しました');
+      }
+      
+      // ファイル入力をリセット
+      e.target.value = '';
+    });
+
+    // ============================================
+    // 作品の保存・読み込み機能
+    // ============================================
+    
+    const STORAGE_KEY = 'fourier_picture_works';
+    
+    /**
+     * 保存された作品リストを取得
+     * @returns {Array<{name: string, data: object, timestamp: number}>}
+     */
+    function getSavedWorks() {
+      try {
+        const data = localStorage.getItem(STORAGE_KEY);
+        return data ? JSON.parse(data) : [];
+      } catch (e) {
+        console.error('保存データの読み込みに失敗:', e);
+        return [];
+      }
+    }
+    
+    /**
+     * 作品リストを保存
+     * @param {Array} works - 作品リスト
+     */
+    function setSavedWorks(works) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(works));
+      } catch (e) {
+        console.error('保存に失敗:', e);
+        alert('保存に失敗しました。ストレージの容量が不足している可能性があります。');
+      }
+    }
+    
+    /**
+     * 現在の作品を保存
+     * @param {string} name - 作品名
+     */
+    function saveCurrentWork(name) {
+      if (!name || name.trim() === '') {
+        alert('作品名を入力してください');
+        return false;
+      }
+      
+      const workData = {
+        strokes: strokes,
+        multiStrokeMode: multiStrokeMode,
+        kValue: parseInt(document.getElementById('kValue').value),
+        numFrames: parseInt(document.getElementById('numFrames').value)
+      };
+      
+      const works = getSavedWorks();
+      
+      // 同名の作品があれば上書き確認
+      const existingIndex = works.findIndex(w => w.name === name.trim());
+      if (existingIndex !== -1) {
+        if (!confirm(`「${name}」は既に存在します。上書きしますか？`)) {
+          return false;
+        }
+        works[existingIndex] = {
+          name: name.trim(),
+          data: workData,
+          timestamp: Date.now()
+        };
+      } else {
+        works.push({
+          name: name.trim(),
+          data: workData,
+          timestamp: Date.now()
+        });
+      }
+      
+      setSavedWorks(works);
+      updateSavedWorksList();
+      return true;
+    }
+    
+    /**
+     * 作品を読み込み
+     * @param {number} index - 作品のインデックス
+     */
+    function loadWork(index) {
+      const works = getSavedWorks();
+      if (index < 0 || index >= works.length) {
+        alert('作品が見つかりません');
+        return;
+      }
+      
+      const work = works[index];
+      
+      // データを復元
+      strokes = work.data.strokes || [];
+      currentStroke = [];
+      multiStrokeMode = work.data.multiStrokeMode !== false;
+      
+      document.getElementById('multiStrokeMode').checked = multiStrokeMode;
+      document.getElementById('modeInfo').textContent = multiStrokeMode 
+        ? '複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。'
+        : '一筆書きモード: 描くたびにリセットされます';
+      
+      if (work.data.kValue) {
+        document.getElementById('kValue').value = work.data.kValue;
+        document.getElementById('menuKValue').value = work.data.kValue;
+      }
+      
+      if (work.data.numFrames) {
+        document.getElementById('numFrames').value = work.data.numFrames;
+        document.getElementById('menuNumFrames').value = work.data.numFrames;
+      }
+      
+      // キャンバスを再描画
+      redrawInputCanvas();
+      initCanvas(rctx, reconCanvas);
+      
+      updateStatus(`「${work.name}」を読み込みました`);
+      closeMenu();
+    }
+    
+    /**
+     * 作品を削除
+     * @param {number} index - 作品のインデックス
+     */
+    function deleteWork(index) {
+      const works = getSavedWorks();
+      if (index < 0 || index >= works.length) {
+        return;
+      }
+      
+      const work = works[index];
+      if (!confirm(`「${work.name}」を削除しますか？`)) {
+        return;
+      }
+      
+      works.splice(index, 1);
+      setSavedWorks(works);
+      updateSavedWorksList();
+    }
+    
+    /**
+     * 保存された作品リストを更新
+     */
+    function updateSavedWorksList() {
+      const listContainer = document.getElementById('savedWorksList');
+      const works = getSavedWorks();
+      
+      if (works.length === 0) {
+        listContainer.innerHTML = '<div class="no-saved-works">保存された作品はありません</div>';
+        return;
+      }
+      
+      // 日付でソート（新しい順）
+      works.sort((a, b) => b.timestamp - a.timestamp);
+      
+      let html = '';
+      works.forEach((work, index) => {
+        const date = new Date(work.timestamp).toLocaleDateString('ja-JP');
+        html += `
+          <div class="saved-work-item">
+            <span title="${work.name} (${date})">${work.name}</span>
+            <button class="load-btn" onclick="loadWork(${index})">読込</button>
+            <button class="delete-btn" onclick="deleteWork(${index})">削除</button>
+          </div>
+        `;
+      });
+      
+      listContainer.innerHTML = html;
+    }
+    
+    // 保存ボタンのイベント
+    document.getElementById('saveWorkBtn').addEventListener('click', () => {
+      const nameInput = document.getElementById('saveWorkName');
+      const name = nameInput.value;
+      
+      if (strokes.length === 0) {
+        alert('保存する作品がありません。まず何か描いてください。');
+        return;
+      }
+      
+      if (saveCurrentWork(name)) {
+        nameInput.value = '';
+        alert('作品を保存しました');
+      }
+    });
+    
+    // 関数をグローバルスコープに公開（onclick用）
+    window.loadWork = loadWork;
+    window.deleteWork = deleteWork;
   </script>
 </body>
 </html>

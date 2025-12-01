@@ -233,11 +233,166 @@
     .qr-hint.ok {
       color: #2e7d32;
     }
+    /* Menu styles */
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .menu-btn {
+      background-color: #607D8B;
+      padding: 8px 16px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .menu-btn:hover {
+      background-color: #546E7A;
+    }
+    .menu-panel {
+      display: none;
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 320px;
+      max-width: 90%;
+      height: 100%;
+      background-color: white;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.2);
+      z-index: 1001;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    .menu-panel.open {
+      display: block;
+    }
+    .menu-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
+    .menu-overlay.open {
+      display: block;
+    }
+    .menu-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+    }
+    .menu-header h3 {
+      margin: 0;
+      color: #333;
+    }
+    .menu-close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #666;
+      padding: 0;
+    }
+    .menu-close-btn:hover {
+      color: #333;
+      background: none;
+    }
+    .menu-section {
+      margin-bottom: 20px;
+    }
+    .menu-section h4 {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 10px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .menu-item {
+      margin-bottom: 15px;
+    }
+    .menu-item label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+    .menu-item input[type="number"],
+    .menu-item input[type="range"] {
+      width: 100%;
+    }
+    .menu-item input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px dashed #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .menu-item button {
+      width: 100%;
+      margin-bottom: 5px;
+    }
+    .menu-item .range-value {
+      font-size: 12px;
+      color: #888;
+      text-align: right;
+    }
+    .saved-works-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 4px;
+    }
+    .saved-work-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+    }
+    .saved-work-item:last-child {
+      border-bottom: none;
+    }
+    .saved-work-item span {
+      font-size: 12px;
+      color: #333;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .saved-work-item button {
+      width: auto;
+      padding: 4px 8px;
+      font-size: 11px;
+      margin: 0 2px;
+    }
+    .saved-work-item .load-btn {
+      background-color: #4CAF50;
+    }
+    .saved-work-item .delete-btn {
+      background-color: #f44336;
+    }
+    .no-saved-works {
+      padding: 15px;
+      text-align: center;
+      color: #888;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>
-  <div class="lang-switch">
-    <a href="index.html">🇯🇵 日本語</a>
+  <div class="header-bar">
+    <div class="lang-switch">
+      <a href="index.html">🇯🇵 日本語</a>
+    </div>
+    <button class="menu-btn" id="menuBtn">☰ Menu</button>
   </div>
   
   <h1>Fourier Transform Doodle Art</h1>
@@ -307,6 +462,59 @@
         <button id="downloadCardBtn" class="secondary">Download Card Image</button>
         <button id="copyUrlBtn" class="secondary">Copy URL</button>
         <button id="closeModalBtn" class="modal-close">Close</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Menu Overlay and Panel -->
+  <div class="menu-overlay" id="menuOverlay"></div>
+  <div class="menu-panel" id="menuPanel">
+    <div class="menu-header">
+      <h3>Menu</h3>
+      <button class="menu-close-btn" id="menuCloseBtn">&times;</button>
+    </div>
+    
+    <div class="menu-section">
+      <h4>📁 Import Image</h4>
+      <div class="menu-item">
+        <label for="svgFileInput">Select SVG file:</label>
+        <input type="file" id="svgFileInput" accept=".svg">
+      </div>
+      <div class="menu-item">
+        <label for="svgSampleInterval">Sampling interval (px):</label>
+        <input type="range" id="svgSampleInterval" min="1" max="20" value="5">
+        <div class="range-value"><span id="svgSampleIntervalValue">5</span>px</div>
+      </div>
+    </div>
+    
+    <div class="menu-section">
+      <h4>⚙️ Parameters</h4>
+      <div class="menu-item">
+        <label for="menuKValue">Fourier Terms K:</label>
+        <input type="number" id="menuKValue" value="10" min="1" max="1000">
+      </div>
+      <div class="menu-item">
+        <label for="menuNumFrames">Animation Frames:</label>
+        <input type="number" id="menuNumFrames" value="30" min="5" max="100">
+      </div>
+      <div class="menu-item">
+        <label for="menuPenThreshold">Pen Threshold:</label>
+        <input type="range" id="menuPenThreshold" min="0" max="100" value="50">
+        <div class="range-value"><span id="menuPenThresholdValue">0.5</span></div>
+      </div>
+    </div>
+    
+    <div class="menu-section">
+      <h4>💾 Save / Load Works</h4>
+      <div class="menu-item">
+        <input type="text" id="saveWorkName" placeholder="Enter work name..." style="width: 100%; padding: 8px; margin-bottom: 5px;">
+        <button id="saveWorkBtn" class="secondary">Save Current Work</button>
+      </div>
+      <div class="menu-item">
+        <label>Saved Works:</label>
+        <div class="saved-works-list" id="savedWorksList">
+          <div class="no-saved-works">No saved works</div>
+        </div>
       </div>
     </div>
   </div>
@@ -2122,6 +2330,480 @@
         }
       }, 100);
     });
+
+    // ============================================
+    // Menu Functions
+    // ============================================
+    
+    const menuBtn = document.getElementById('menuBtn');
+    const menuPanel = document.getElementById('menuPanel');
+    const menuOverlay = document.getElementById('menuOverlay');
+    const menuCloseBtn = document.getElementById('menuCloseBtn');
+    
+    function openMenu() {
+      menuPanel.classList.add('open');
+      menuOverlay.classList.add('open');
+      // Sync menu parameters with current values
+      document.getElementById('menuKValue').value = document.getElementById('kValue').value;
+      document.getElementById('menuNumFrames').value = document.getElementById('numFrames').value;
+      updateSavedWorksList();
+    }
+    
+    function closeMenu() {
+      menuPanel.classList.remove('open');
+      menuOverlay.classList.remove('open');
+    }
+    
+    menuBtn.addEventListener('click', openMenu);
+    menuCloseBtn.addEventListener('click', closeMenu);
+    menuOverlay.addEventListener('click', closeMenu);
+    
+    // Parameter sync
+    document.getElementById('menuKValue').addEventListener('change', (e) => {
+      document.getElementById('kValue').value = e.target.value;
+    });
+    
+    document.getElementById('menuNumFrames').addEventListener('change', (e) => {
+      document.getElementById('numFrames').value = e.target.value;
+    });
+    
+    // Sampling interval display update
+    const svgSampleInterval = document.getElementById('svgSampleInterval');
+    const svgSampleIntervalValue = document.getElementById('svgSampleIntervalValue');
+    svgSampleInterval.addEventListener('input', () => {
+      svgSampleIntervalValue.textContent = svgSampleInterval.value;
+    });
+    
+    // Pen threshold display update
+    const menuPenThreshold = document.getElementById('menuPenThreshold');
+    const menuPenThresholdValue = document.getElementById('menuPenThresholdValue');
+    menuPenThreshold.addEventListener('input', () => {
+      menuPenThresholdValue.textContent = (menuPenThreshold.value / 100).toFixed(2);
+    });
+
+    // ============================================
+    // SVG Import Functions
+    // ============================================
+    
+    /**
+     * Generate point cloud data from SVG file
+     * @param {File} file - SVG file
+     * @returns {Promise<{x: number[], y: number[], pen: number[]}>}
+     */
+    async function importSVG(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+          try {
+            const svgText = e.target.result;
+            const result = parseSVGToPoints(svgText);
+            resolve(result);
+          } catch (err) {
+            reject(err);
+          }
+        };
+        
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+      });
+    }
+    
+    /**
+     * Parse SVG string and convert to point cloud data
+     * @param {string} svgText - SVG string
+     * @returns {{x: number[], y: number[], pen: number[]}}
+     */
+    function parseSVGToPoints(svgText) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      
+      // Check for parse errors
+      const parseError = doc.querySelector('parsererror');
+      if (parseError) {
+        throw new Error('Failed to parse SVG: ' + parseError.textContent);
+      }
+      
+      // Temporarily add SVG to DOM to enable getTotalLength/getPointAtLength
+      const svgElement = doc.documentElement;
+      const tempContainer = document.createElement('div');
+      tempContainer.style.cssText = 'position:absolute;visibility:hidden;width:0;height:0;overflow:hidden;';
+      document.body.appendChild(tempContainer);
+      
+      // Clone and append SVG
+      const svgClone = svgElement.cloneNode(true);
+      tempContainer.appendChild(svgClone);
+      
+      // Get sampling interval
+      const sampleInterval = parseInt(svgSampleInterval.value) || 5;
+      
+      // Get all <path> elements
+      const paths = svgClone.querySelectorAll('path');
+      
+      const x = [];
+      const y = [];
+      const pen = [];
+      
+      paths.forEach((path, pathIndex) => {
+        try {
+          const totalLength = path.getTotalLength();
+          
+          if (totalLength === 0) return;
+          
+          // Movement from previous path (pen=0)
+          if (pathIndex > 0 && x.length > 0) {
+            const firstPoint = path.getPointAtLength(0);
+            // Connect end of previous path to start of current path with pen=0
+            x.push(firstPoint.x);
+            y.push(firstPoint.y);
+            pen.push(0);
+          }
+          
+          // Sample points along path
+          for (let length = 0; length <= totalLength; length += sampleInterval) {
+            const point = path.getPointAtLength(length);
+            x.push(point.x);
+            y.push(point.y);
+            pen.push(1);
+          }
+          
+          // Ensure last point is included
+          const endPoint = path.getPointAtLength(totalLength);
+          if (x.length === 0 || 
+              Math.abs(x[x.length - 1] - endPoint.x) > 0.1 || 
+              Math.abs(y[y.length - 1] - endPoint.y) > 0.1) {
+            x.push(endPoint.x);
+            y.push(endPoint.y);
+            pen.push(1);
+          }
+        } catch (pathErr) {
+          console.warn('Error processing path:', pathErr);
+        }
+      });
+      
+      // Remove temp container
+      document.body.removeChild(tempContainer);
+      
+      if (x.length === 0) {
+        throw new Error('No valid paths found in SVG. Please ensure the file contains <path> elements.');
+      }
+      
+      // Normalize coordinates
+      return normalizePoints(x, y, pen);
+    }
+    
+    /**
+     * Normalize point cloud data (centering and scaling)
+     * @param {number[]} x - X coordinate array
+     * @param {number[]} y - Y coordinate array
+     * @param {number[]} pen - Pen state array
+     * @returns {{x: number[], y: number[], pen: number[]}}
+     */
+    function normalizePoints(x, y, pen) {
+      if (x.length === 0) {
+        return { x: [], y: [], pen: [] };
+      }
+      
+      // Calculate bounding box
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      
+      for (let i = 0; i < x.length; i++) {
+        minX = Math.min(minX, x[i]);
+        maxX = Math.max(maxX, x[i]);
+        minY = Math.min(minY, y[i]);
+        maxY = Math.max(maxY, y[i]);
+      }
+      
+      // Calculate center
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      
+      // Calculate size
+      const width = maxX - minX;
+      const height = maxY - minY;
+      const maxDimension = Math.max(width, height);
+      
+      // Scale to fit canvas (600x400) with margin
+      const canvasWidth = canvas.width;
+      const canvasHeight = canvas.height;
+      const margin = 40;
+      
+      const scaleX = (canvasWidth - margin * 2) / width;
+      const scaleY = (canvasHeight - margin * 2) / height;
+      const scale = Math.min(scaleX, scaleY);
+      
+      // Calculate normalized coordinates
+      const normalizedX = [];
+      const normalizedY = [];
+      
+      for (let i = 0; i < x.length; i++) {
+        // Center and scale
+        const nx = (x[i] - centerX) * scale + canvasWidth / 2;
+        const ny = (y[i] - centerY) * scale + canvasHeight / 2;
+        normalizedX.push(nx);
+        normalizedY.push(ny);
+      }
+      
+      return {
+        x: normalizedX,
+        y: normalizedY,
+        pen: pen
+      };
+    }
+    
+    /**
+     * Apply imported point cloud data to stroke data
+     * @param {{x: number[], y: number[], pen: number[]}} data - Point cloud data
+     */
+    function applyImportedPoints(data) {
+      // Clear existing data
+      strokes = [];
+      currentStroke = [];
+      
+      // Split into strokes based on pen state
+      let currentStrokeData = [];
+      
+      for (let i = 0; i < data.x.length; i++) {
+        if (data.pen[i] === 1) {
+          currentStrokeData.push([data.x[i], data.y[i]]);
+        } else {
+          // pen=0: end current stroke and start new one
+          if (currentStrokeData.length > 0) {
+            strokes.push(currentStrokeData);
+            currentStrokeData = [];
+          }
+        }
+      }
+      
+      // Add last stroke
+      if (currentStrokeData.length > 0) {
+        strokes.push(currentStrokeData);
+      }
+      
+      // Enable multi-stroke mode
+      document.getElementById('multiStrokeMode').checked = true;
+      multiStrokeMode = true;
+      document.getElementById('modeInfo').textContent = 'Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.';
+      
+      // Redraw canvas
+      redrawInputCanvas();
+      
+      updateStatus(`Imported SVG (${strokes.length} strokes, ${data.x.length} points)`);
+    }
+    
+    // SVG file selection event
+    document.getElementById('svgFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      if (!file.name.toLowerCase().endsWith('.svg')) {
+        alert('Please select an SVG file');
+        return;
+      }
+      
+      updateStatus('Importing SVG...');
+      
+      try {
+        const pointsData = await importSVG(file);
+        applyImportedPoints(pointsData);
+        closeMenu();
+      } catch (err) {
+        console.error('SVG import error:', err);
+        alert('Failed to import SVG: ' + err.message);
+        updateStatus('SVG import failed');
+      }
+      
+      // Reset file input
+      e.target.value = '';
+    });
+
+    // ============================================
+    // Save/Load Work Functions
+    // ============================================
+    
+    const STORAGE_KEY = 'fourier_picture_works';
+    
+    /**
+     * Get saved works list
+     * @returns {Array<{name: string, data: object, timestamp: number}>}
+     */
+    function getSavedWorks() {
+      try {
+        const data = localStorage.getItem(STORAGE_KEY);
+        return data ? JSON.parse(data) : [];
+      } catch (e) {
+        console.error('Failed to load saved data:', e);
+        return [];
+      }
+    }
+    
+    /**
+     * Save works list
+     * @param {Array} works - Works list
+     */
+    function setSavedWorks(works) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(works));
+      } catch (e) {
+        console.error('Failed to save:', e);
+        alert('Failed to save. Storage may be full.');
+      }
+    }
+    
+    /**
+     * Save current work
+     * @param {string} name - Work name
+     */
+    function saveCurrentWork(name) {
+      if (!name || name.trim() === '') {
+        alert('Please enter a work name');
+        return false;
+      }
+      
+      const workData = {
+        strokes: strokes,
+        multiStrokeMode: multiStrokeMode,
+        kValue: parseInt(document.getElementById('kValue').value),
+        numFrames: parseInt(document.getElementById('numFrames').value)
+      };
+      
+      const works = getSavedWorks();
+      
+      // Check for duplicate name
+      const existingIndex = works.findIndex(w => w.name === name.trim());
+      if (existingIndex !== -1) {
+        if (!confirm(`"${name}" already exists. Overwrite?`)) {
+          return false;
+        }
+        works[existingIndex] = {
+          name: name.trim(),
+          data: workData,
+          timestamp: Date.now()
+        };
+      } else {
+        works.push({
+          name: name.trim(),
+          data: workData,
+          timestamp: Date.now()
+        });
+      }
+      
+      setSavedWorks(works);
+      updateSavedWorksList();
+      return true;
+    }
+    
+    /**
+     * Load work
+     * @param {number} index - Work index
+     */
+    function loadWork(index) {
+      const works = getSavedWorks();
+      if (index < 0 || index >= works.length) {
+        alert('Work not found');
+        return;
+      }
+      
+      const work = works[index];
+      
+      // Restore data
+      strokes = work.data.strokes || [];
+      currentStroke = [];
+      multiStrokeMode = work.data.multiStrokeMode !== false;
+      
+      document.getElementById('multiStrokeMode').checked = multiStrokeMode;
+      document.getElementById('modeInfo').textContent = multiStrokeMode 
+        ? 'Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.'
+        : 'Single-stroke Mode: Canvas resets on each new stroke';
+      
+      if (work.data.kValue) {
+        document.getElementById('kValue').value = work.data.kValue;
+        document.getElementById('menuKValue').value = work.data.kValue;
+      }
+      
+      if (work.data.numFrames) {
+        document.getElementById('numFrames').value = work.data.numFrames;
+        document.getElementById('menuNumFrames').value = work.data.numFrames;
+      }
+      
+      // Redraw canvas
+      redrawInputCanvas();
+      initCanvas(rctx, reconCanvas);
+      
+      updateStatus(`Loaded "${work.name}"`);
+      closeMenu();
+    }
+    
+    /**
+     * Delete work
+     * @param {number} index - Work index
+     */
+    function deleteWork(index) {
+      const works = getSavedWorks();
+      if (index < 0 || index >= works.length) {
+        return;
+      }
+      
+      const work = works[index];
+      if (!confirm(`Delete "${work.name}"?`)) {
+        return;
+      }
+      
+      works.splice(index, 1);
+      setSavedWorks(works);
+      updateSavedWorksList();
+    }
+    
+    /**
+     * Update saved works list UI
+     */
+    function updateSavedWorksList() {
+      const listContainer = document.getElementById('savedWorksList');
+      const works = getSavedWorks();
+      
+      if (works.length === 0) {
+        listContainer.innerHTML = '<div class="no-saved-works">No saved works</div>';
+        return;
+      }
+      
+      // Sort by date (newest first)
+      works.sort((a, b) => b.timestamp - a.timestamp);
+      
+      let html = '';
+      works.forEach((work, index) => {
+        const date = new Date(work.timestamp).toLocaleDateString('en-US');
+        html += `
+          <div class="saved-work-item">
+            <span title="${work.name} (${date})">${work.name}</span>
+            <button class="load-btn" onclick="loadWork(${index})">Load</button>
+            <button class="delete-btn" onclick="deleteWork(${index})">Delete</button>
+          </div>
+        `;
+      });
+      
+      listContainer.innerHTML = html;
+    }
+    
+    // Save button event
+    document.getElementById('saveWorkBtn').addEventListener('click', () => {
+      const nameInput = document.getElementById('saveWorkName');
+      const name = nameInput.value;
+      
+      if (strokes.length === 0) {
+        alert('No work to save. Please draw something first.');
+        return;
+      }
+      
+      if (saveCurrentWork(name)) {
+        nameInput.value = '';
+        alert('Work saved');
+      }
+    });
+    
+    // Expose functions to global scope (for onclick)
+    window.loadWork = loadWork;
+    window.deleteWork = deleteWork;
   </script>
 </body>
 </html>
