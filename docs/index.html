@@ -208,6 +208,45 @@
       color: #888;
       margin-top: 5px;
     }
+    .k-control-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .k-input-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    input[type="range"] {
+      flex: 1;
+      min-width: 150px;
+    }
+    .k-value-display {
+      font-weight: bold;
+      color: #333;
+      min-width: 40px;
+      text-align: center;
+    }
+    .k-button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .increment-btn {
+      padding: 4px 12px;
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+      line-height: 1;
+    }
+    .increment-btn:hover {
+      background-color: #0b7dda;
+    }
     footer {
       text-align: center;
       margin-top: 20px;
@@ -451,15 +490,21 @@
         </div>
         <div class="mode-info" id="modeInfo">複数ストロークモード: 複数の線を描けます。線の間は薄く表示されます。</div>
         
-        <div class="control-group">
-          <label for="kValue">フーリエ項数 K:</label>
-          <input type="number" id="kValue" value="10" min="1" max="1000">
+        <div class="k-control-wrapper">
+          <label>フーリエ項数 K:</label>
+          <div class="k-input-group">
+            <input type="range" id="kSlider" min="1" max="200" value="10">
+            <span class="k-value-display" id="kValueDisplay">10</span>
+            <div class="k-button-group">
+              <button id="incrementKBtn" class="increment-btn">▲</button>
+              <button id="decrementKBtn" class="increment-btn">▼</button>
+            </div>
+          </div>
+          <input type="number" id="kValue" value="10" min="1" max="1000" style="display:none;">
         </div>
         
         <div class="button-group">
-          <button id="processBtn">フーリエ変換</button>
           <button id="clearBtn" class="clear">クリア</button>
-          <button id="downloadInputBtn" class="secondary">入力画像をダウンロード</button>
         </div>
         
         <div class="control-group">
@@ -658,8 +703,8 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成
-      const numOutputPoints = Math.max(N, 200);
+      // 再構成（出力点数をK*5に固定）
+      const numOutputPoints = actualK * 5;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -707,8 +752,8 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成
-      const numOutputPoints = Math.max(N, 200);
+      // 再構成（出力点数をK*5に固定）
+      const numOutputPoints = actualK * 5;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -868,7 +913,7 @@
       const is3d = data.d.length === 3;
       const freqs = fftfreq(N);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = K.length * 5;
       const result = [];
       
       if (is3d) {
@@ -1503,6 +1548,91 @@
       }
     });
 
+    // K値コントロール - スライダーと表示を同期
+    const kSlider = document.getElementById('kSlider');
+    const kValue = document.getElementById('kValue');
+    const kValueDisplay = document.getElementById('kValueDisplay');
+    const incrementKBtn = document.getElementById('incrementKBtn');
+
+    // フーリエ変換を自動実行する関数
+    function autoTransform() {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
+        return; // 描画がない場合は何もしない
+      }
+      
+      const K = parseInt(kValue.value);
+      if (isNaN(K) || K < 1) {
+        return;
+      }
+
+      const useMultiStroke = multiStrokeMode;
+      const inputPoints = useMultiStroke ? points3d : points2d;
+      
+      try {
+        let result;
+        if (useMultiStroke) {
+          result = reconstructFourier3d(inputPoints, K);
+        } else {
+          result = reconstructFourier2d(inputPoints, K);
+        }
+        
+        drawPoints(rctx, reconCanvas, result);
+        const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
+        updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${inputPoints.length}${strokeInfo})`);
+        
+        // QRヒントを更新
+        updateQRHint();
+        
+        // 係数を計算してshareボタンを有効化
+        currentCoefficients = getFourierCoefficients(inputPoints, K, useMultiStroke);
+        document.getElementById('shareBtn').disabled = false;
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+
+    // スライダーが変更されたとき
+    kSlider.addEventListener('input', (e) => {
+      const value = e.target.value;
+      kValue.value = value;
+      kValueDisplay.textContent = value;
+      autoTransform();
+    });
+
+    // +1ボタンがクリックされたとき
+    incrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.min(currentK + 1, 1000); // 最大値は1000
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // スライダーの最大値は200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // -1ボタンがクリックされたとき
+    const decrementKBtn = document.getElementById('decrementKBtn');
+    decrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.max(currentK - 1, 1); // 最小値は1
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // スライダーの最大値は200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // 数値入力が直接変更されたとき（念のため）
+    kValue.addEventListener('change', (e) => {
+      const value = parseInt(e.target.value) || 10;
+      const clampedValue = Math.max(1, Math.min(value, 1000));
+      kValue.value = clampedValue;
+      kSlider.value = Math.min(clampedValue, 200);
+      kValueDisplay.textContent = clampedValue;
+      autoTransform();
+    });
+
     // 描画イベント（マウス）
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
@@ -1558,6 +1688,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // 自動でフーリエ変換を実行
+        autoTransform();
       }
       drawing = false;
     });
@@ -1568,6 +1700,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // 自動でフーリエ変換を実行
+        autoTransform();
       }
       drawing = false;
     });
@@ -1632,6 +1766,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // 自動でフーリエ変換を実行
+        autoTransform();
       }
       drawing = false;
     });
@@ -1726,60 +1862,6 @@
       initCanvas(rctx, reconCanvas);
       document.getElementById('downloadVideoBtn').disabled = true;
       updateStatus('描画してフーリエ変換を実行してください');
-    });
-
-    // フーリエ変換ボタン
-    document.getElementById('processBtn').addEventListener('click', () => {
-      // アニメーションを停止
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-        clearTimeout(animationId);
-        animationId = null;
-      }
-      isPlaying = false;
-      showProgress(false);
-      
-      const points2d = generatePoints2d();
-      const points3d = generatePoints3d();
-      
-      if (points2d.length === 0) {
-        alert("まずはキャンバス上に描いてください");
-        return;
-      }
-      
-      const K = parseInt(document.getElementById('kValue').value);
-      if (isNaN(K) || K < 1) {
-        alert("K の値は1以上の整数を入力してください");
-        return;
-      }
-
-      updateStatus('処理中...');
-      
-      const useMultiStroke = multiStrokeMode;
-      const inputPoints = useMultiStroke ? points3d : points2d;
-      
-      // JavaScriptでフーリエ変換を実行
-      setTimeout(() => {
-        try {
-          let result;
-          if (useMultiStroke) {
-            result = reconstructFourier3d(inputPoints, K);
-          } else {
-            result = reconstructFourier2d(inputPoints, K);
-          }
-          
-          drawPoints(rctx, reconCanvas, result);
-          const strokeInfo = useMultiStroke ? `, ストローク数: ${strokes.length}` : '';
-          updateStatus(`フーリエ変換完了 (K=${K}, 入力点数: ${inputPoints.length}${strokeInfo})`);
-          
-          // QRヒントを更新
-          updateQRHint();
-        } catch (error) {
-          console.error("Error:", error);
-          alert("エラーが発生しました: " + error.message);
-          updateStatus('エラーが発生しました');
-        }
-      }, 10);
     });
 
     // アニメーション生成ボタン
@@ -1937,14 +2019,6 @@
         isPlaying = true;
         playAnimation();
       }
-    });
-
-    // 入力画像ダウンロード
-    document.getElementById('downloadInputBtn').addEventListener('click', () => {
-      const link = document.createElement('a');
-      link.download = 'input_image.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
     });
 
     // 生成画像ダウンロード
@@ -2399,28 +2473,6 @@
         // 通常モード - shareボタンは変換後に有効化
         document.getElementById('shareBtn').disabled = true;
       }
-    });
-    
-    // フーリエ変換時に係数を保存
-    document.getElementById('processBtn').addEventListener('click', () => {
-      // フーリエ変換実行後に係数を計算
-      setTimeout(() => {
-        const points3d = generatePoints3d();
-        const points2d = generatePoints2d();
-        
-        if (points2d.length > 0) {
-          const K = parseInt(document.getElementById('kValue').value);
-          const useMultiStroke = multiStrokeMode;
-          const inputPoints = useMultiStroke ? points3d : points2d;
-          
-          // 共有用の係数を取得（ユーザー指定のKを使用）
-          const shareK = K;
-          currentCoefficients = getFourierCoefficients(inputPoints, shareK, useMultiStroke);
-          
-          // shareボタンを有効化
-          document.getElementById('shareBtn').disabled = false;
-        }
-      }, 100);
     });
 
     // ============================================

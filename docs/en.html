@@ -198,6 +198,39 @@
       color: #888;
       margin-top: 5px;
     }
+    .k-control-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .k-input-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    input[type="range"] {
+      flex: 1;
+      min-width: 150px;
+    }
+    .k-value-display {
+      font-weight: bold;
+      color: #333;
+      min-width: 40px;
+      text-align: center;
+    }
+    .increment-btn {
+      padding: 8px 16px;
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .increment-btn:hover {
+      background-color: #0b7dda;
+    }
     footer {
       text-align: center;
       margin-top: 20px;
@@ -441,15 +474,21 @@
         </div>
         <div class="mode-info" id="modeInfo">Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.</div>
         
-        <div class="control-group">
-          <label for="kValue">Fourier Terms K:</label>
-          <input type="number" id="kValue" value="10" min="1" max="1000">
+        <div class="k-control-wrapper">
+          <label>Fourier Terms K:</label>
+          <div class="k-input-group">
+            <input type="range" id="kSlider" min="1" max="200" value="10">
+            <span class="k-value-display" id="kValueDisplay">10</span>
+            <div class="k-button-group">
+              <button id="incrementKBtn" class="increment-btn">▲</button>
+              <button id="decrementKBtn" class="increment-btn">▼</button>
+            </div>
+          </div>
+          <input type="number" id="kValue" value="10" min="1" max="1000" style="display:none;">
         </div>
         
         <div class="button-group">
-          <button id="processBtn">Transform</button>
           <button id="clearBtn" class="clear">Clear</button>
-          <button id="downloadInputBtn" class="secondary">Download Input</button>
         </div>
         
         <div class="control-group">
@@ -639,7 +678,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = actualK * 5;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -682,7 +721,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = actualK * 5;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -837,7 +876,7 @@
       const is3d = data.d.length === 3;
       const freqs = fftfreq(N);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = K.length * 5;
       const result = [];
       
       if (is3d) {
@@ -1459,6 +1498,91 @@
       }
     });
 
+    // K value controls - sync slider and display
+    const kSlider = document.getElementById('kSlider');
+    const kValue = document.getElementById('kValue');
+    const kValueDisplay = document.getElementById('kValueDisplay');
+    const incrementKBtn = document.getElementById('incrementKBtn');
+
+    // Auto-execute Fourier transform
+    function autoTransform() {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
+        return; // Do nothing if no drawing
+      }
+      
+      const K = parseInt(kValue.value);
+      if (isNaN(K) || K < 1) {
+        return;
+      }
+
+      const useMultiStroke = multiStrokeMode;
+      const inputPoints = useMultiStroke ? points3d : points2d;
+      
+      try {
+        let result;
+        if (useMultiStroke) {
+          result = reconstructFourier3d(inputPoints, K);
+        } else {
+          result = reconstructFourier2d(inputPoints, K);
+        }
+        
+        drawPoints(rctx, reconCanvas, result);
+        const strokeInfo = useMultiStroke ? `, strokes: ${strokes.length}` : '';
+        updateStatus(`Transform complete (K=${K}, points: ${inputPoints.length}${strokeInfo})`);
+        
+        // Update QR hint
+        updateQRHint();
+        
+        // Calculate coefficients and enable share button
+        currentCoefficients = getFourierCoefficients(inputPoints, K, useMultiStroke);
+        document.getElementById('shareBtn').disabled = false;
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+
+    // Slider change
+    kSlider.addEventListener('input', (e) => {
+      const value = e.target.value;
+      kValue.value = value;
+      kValueDisplay.textContent = value;
+      autoTransform();
+    });
+
+    // +1 button click
+    incrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.min(currentK + 1, 1000); // Max 1000
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // Slider max is 200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // -1 button click
+    const decrementKBtn = document.getElementById('decrementKBtn');
+    decrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.max(currentK - 1, 1); // Min 1
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // Slider max is 200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // Direct number input change (just in case)
+    kValue.addEventListener('change', (e) => {
+      const value = parseInt(e.target.value) || 10;
+      const clampedValue = Math.max(1, Math.min(value, 1000));
+      kValue.value = clampedValue;
+      kSlider.value = Math.min(clampedValue, 200);
+      kValueDisplay.textContent = clampedValue;
+      autoTransform();
+    });
+
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
       lastSampleTime = performance.now();
@@ -1513,6 +1637,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
@@ -1523,6 +1649,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
@@ -1586,6 +1714,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
