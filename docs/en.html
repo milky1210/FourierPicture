@@ -7,6 +7,7 @@
   <link rel="alternate" hreflang="ja" href="index.html">
   <link rel="alternate" hreflang="en" href="en.html">
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
   <style>
     * {
       margin: 0;
@@ -197,6 +198,39 @@
       font-size: 12px;
       color: #888;
       margin-top: 5px;
+    }
+    .k-control-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .k-input-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    input[type="range"] {
+      flex: 1;
+      min-width: 150px;
+    }
+    .k-value-display {
+      font-weight: bold;
+      color: #333;
+      min-width: 40px;
+      text-align: center;
+    }
+    .increment-btn {
+      padding: 8px 16px;
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    .increment-btn:hover {
+      background-color: #0b7dda;
     }
     footer {
       text-align: center;
@@ -441,15 +475,21 @@
         </div>
         <div class="mode-info" id="modeInfo">Multi-stroke Mode: Draw multiple lines. Gaps between strokes appear faded.</div>
         
-        <div class="control-group">
-          <label for="kValue">Fourier Terms K:</label>
-          <input type="number" id="kValue" value="10" min="1" max="1000">
+        <div class="k-control-wrapper">
+          <label>Fourier Terms K:</label>
+          <div class="k-input-group">
+            <input type="range" id="kSlider" min="1" max="200" value="10">
+            <span class="k-value-display" id="kValueDisplay">10</span>
+            <div class="k-button-group">
+              <button id="incrementKBtn" class="increment-btn">▲</button>
+              <button id="decrementKBtn" class="increment-btn">▼</button>
+            </div>
+          </div>
+          <input type="number" id="kValue" value="10" min="1" max="1000" style="display:none;">
         </div>
         
         <div class="button-group">
-          <button id="processBtn">Transform</button>
           <button id="clearBtn" class="clear">Clear</button>
-          <button id="downloadInputBtn" class="secondary">Download Input</button>
         </div>
         
         <div class="control-group">
@@ -459,7 +499,7 @@
         
         <div class="button-group">
           <button id="animationBtn" class="animation">Generate Animation</button>
-          <button id="downloadVideoBtn" class="animation" disabled>Download Video</button>
+          <button id="downloadVideoBtn" class="animation" disabled>Download GIF</button>
         </div>
       </div>
     </div>
@@ -639,7 +679,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -682,7 +722,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -837,7 +877,7 @@
       const is3d = data.d.length === 3;
       const freqs = fftfreq(N);
       
-      const numOutputPoints = Math.max(N, 200);
+      const numOutputPoints = N * 3;
       const result = [];
       
       if (is3d) {
@@ -1330,7 +1370,7 @@
     }
 
     const reconCanvas = document.getElementById('reconCanvas');
-    const rctx = reconCanvas.getContext('2d');
+    const rctx = reconCanvas.getContext('2d', { willReadFrequently: true });
     
     let animationFrames = [];
     let currentFrameIndex = 0;
@@ -1459,6 +1499,91 @@
       }
     });
 
+    // K value controls - sync slider and display
+    const kSlider = document.getElementById('kSlider');
+    const kValue = document.getElementById('kValue');
+    const kValueDisplay = document.getElementById('kValueDisplay');
+    const incrementKBtn = document.getElementById('incrementKBtn');
+
+    // Auto-execute Fourier transform
+    function autoTransform() {
+      const points2d = generatePoints2d();
+      const points3d = generatePoints3d();
+      
+      if (points2d.length === 0) {
+        return; // Do nothing if no drawing
+      }
+      
+      const K = parseInt(kValue.value);
+      if (isNaN(K) || K < 1) {
+        return;
+      }
+
+      const useMultiStroke = multiStrokeMode;
+      const inputPoints = useMultiStroke ? points3d : points2d;
+      
+      try {
+        let result;
+        if (useMultiStroke) {
+          result = reconstructFourier3d(inputPoints, K);
+        } else {
+          result = reconstructFourier2d(inputPoints, K);
+        }
+        
+        drawPoints(rctx, reconCanvas, result);
+        const strokeInfo = useMultiStroke ? `, strokes: ${strokes.length}` : '';
+        updateStatus(`Transform complete (K=${K}, points: ${inputPoints.length}${strokeInfo})`);
+        
+        // Update QR hint
+        updateQRHint();
+        
+        // Calculate coefficients and enable share button
+        currentCoefficients = getFourierCoefficients(inputPoints, K, useMultiStroke);
+        document.getElementById('shareBtn').disabled = false;
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+
+    // Slider change
+    kSlider.addEventListener('input', (e) => {
+      const value = e.target.value;
+      kValue.value = value;
+      kValueDisplay.textContent = value;
+      autoTransform();
+    });
+
+    // +1 button click
+    incrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.min(currentK + 1, 1000); // Max 1000
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // Slider max is 200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // -1 button click
+    const decrementKBtn = document.getElementById('decrementKBtn');
+    decrementKBtn.addEventListener('click', () => {
+      let currentK = parseInt(kValue.value) || 10;
+      currentK = Math.max(currentK - 1, 1); // Min 1
+      kValue.value = currentK;
+      kSlider.value = Math.min(currentK, 200); // Slider max is 200
+      kValueDisplay.textContent = currentK;
+      autoTransform();
+    });
+
+    // Direct number input change (just in case)
+    kValue.addEventListener('change', (e) => {
+      const value = parseInt(e.target.value) || 10;
+      const clampedValue = Math.max(1, Math.min(value, 1000));
+      kValue.value = clampedValue;
+      kSlider.value = Math.min(clampedValue, 200);
+      kValueDisplay.textContent = clampedValue;
+      autoTransform();
+    });
+
     canvas.addEventListener('mousedown', (e) => {
       drawing = true;
       lastSampleTime = performance.now();
@@ -1513,6 +1638,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
@@ -1523,6 +1650,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
@@ -1586,6 +1715,8 @@
         const simplified = simplifyStroke(currentStroke);
         strokes.push(simplified);
         currentStroke = [];
+        // Auto-execute Fourier transform
+        autoTransform();
       }
       drawing = false;
     });
@@ -1676,57 +1807,6 @@
       initCanvas(rctx, reconCanvas);
       document.getElementById('downloadVideoBtn').disabled = true;
       updateStatus('Draw something and click Transform');
-    });
-
-    document.getElementById('processBtn').addEventListener('click', () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-        clearTimeout(animationId);
-        animationId = null;
-      }
-      isPlaying = false;
-      showProgress(false);
-      
-      const points2d = generatePoints2d();
-      const points3d = generatePoints3d();
-      
-      if (points2d.length === 0) {
-        alert("Please draw something on the canvas first");
-        return;
-      }
-      
-      const K = parseInt(document.getElementById('kValue').value);
-      if (isNaN(K) || K < 1) {
-        alert("K must be a positive integer");
-        return;
-      }
-
-      updateStatus('Processing...');
-      
-      const useMultiStroke = multiStrokeMode;
-      const inputPoints = useMultiStroke ? points3d : points2d;
-      
-      setTimeout(() => {
-        try {
-          let result;
-          if (useMultiStroke) {
-            result = reconstructFourier3d(inputPoints, K);
-          } else {
-            result = reconstructFourier2d(inputPoints, K);
-          }
-          
-          drawPoints(rctx, reconCanvas, result);
-          const strokeInfo = useMultiStroke ? `, Strokes: ${strokes.length}` : '';
-          updateStatus(`Transform complete (K=${K}, Points: ${inputPoints.length}${strokeInfo})`);
-          
-          // Update QR hint
-          updateQRHint();
-        } catch (error) {
-          console.error("Error:", error);
-          alert("An error occurred: " + error.message);
-          updateStatus('Error occurred');
-        }
-      }, 10);
     });
 
     document.getElementById('animationBtn').addEventListener('click', () => {
@@ -1824,70 +1904,101 @@
         animationId = null;
       }
 
-      updateStatus('Generating video...');
+      updateStatus('Generating GIF...');
       showProgress(true);
       setProgress(0);
 
       try {
-        const stream = reconCanvas.captureStream(30);
-        const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'video/webm;codecs=vp9',
-          videoBitsPerSecond: 5000000
+        updateStatus('Generating GIF...');
+        
+        const gif = new GIF({
+          workers: 2,
+          quality: 20,
+          workerScript: 'gif.worker.js',
+          width: reconCanvas.width,
+          height: reconCanvas.height,
+          debug: true
         });
         
-        const chunks = [];
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            chunks.push(e.data);
-          }
-        };
+        console.log('Adding frames to GIF...');
         
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'video/webm' });
+        // Add each frame
+        for (let i = 0; i < animationFrames.length; i++) {
+          const frame = animationFrames[i];
+          drawPoints(rctx, reconCanvas, frame.points);
+          
+          const delay = frame.isFinal ? 3000 : 100;
+          gif.addFrame(reconCanvas, {copy: true, delay: delay});
+          
+          setProgress(((i + 1) / animationFrames.length) * 30);
+        }
+        
+        console.log(`Added ${animationFrames.length} frames`);
+        updateStatus('Encoding GIF...');
+        
+        let renderCompleted = false;
+        
+        gif.on('finished', (blob) => {
+          console.log('GIF rendering finished, blob size:', blob.size);
+          renderCompleted = true;
+          
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = 'fourier_animation.webm';
+          link.download = 'fourier_animation.gif';
           link.click();
-          URL.revokeObjectURL(url);
           
-          updateStatus('Video download complete');
+          setTimeout(() => {
+            URL.revokeObjectURL(url);
+          }, 100);
+          
+          updateStatus('GIF download complete');
           showProgress(false);
           
           isPlaying = true;
           playAnimation();
-        };
-
-        mediaRecorder.start();
+        });
         
-        for (let i = 0; i < animationFrames.length; i++) {
-          const frame = animationFrames[i];
-          drawPoints(rctx, reconCanvas, frame.points);
-          setProgress(((i + 1) / animationFrames.length) * 100);
-          
-          const delay = frame.isFinal ? 3000 : 100;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
+        gif.on('progress', (progress) => {
+          console.log('GIF encoding progress:', progress);
+          setProgress(30 + progress * 70);
+        });
         
-        mediaRecorder.stop();
+        gif.on('abort', () => {
+          console.log('GIF rendering aborted');
+          alert('GIF generation was aborted');
+          updateStatus('GIF generation aborted');
+          showProgress(false);
+          isPlaying = true;
+          playAnimation();
+        });
+        
+        console.log('Starting GIF render...');
+        gif.render();
+        
+        // Set 30 second timeout
+        setTimeout(() => {
+          if (!renderCompleted) {
+            console.log('GIF rendering timeout');
+            gif.abort();
+            alert('GIF generation timed out. Please reduce the number of frames.');
+            updateStatus('GIF generation timeout');
+            showProgress(false);
+            isPlaying = true;
+            playAnimation();
+          }
+        }, 30000);
         
       } catch (error) {
         console.error("Error:", error);
         
-        alert("Error generating video. Your browser may not support WebM format.");
-        updateStatus('Video generation failed');
+        alert("Error generating GIF: " + error.message);
+        updateStatus('GIF generation failed');
         showProgress(false);
         
         isPlaying = true;
         playAnimation();
       }
-    });
-
-    document.getElementById('downloadInputBtn').addEventListener('click', () => {
-      const link = document.createElement('a');
-      link.download = 'input_image.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
     });
 
     document.getElementById('downloadOutputBtn').addEventListener('click', () => {
@@ -2207,7 +2318,7 @@
       const videoBtn = document.createElement('button');
       videoBtn.id = 'viewerVideoBtn';
       videoBtn.className = 'animation';
-      videoBtn.textContent = 'Download Video';
+      videoBtn.textContent = 'Download GIF';
       videoBtn.disabled = true;
       buttonGroup.appendChild(videoBtn);
       
@@ -2271,58 +2382,92 @@
           animationId = null;
         }
         
-        updateStatus('Generating video...');
+        updateStatus('Generating GIF...');
         showProgress(true);
         setProgress(0);
         
         try {
-          const stream = reconCanvas.captureStream(30);
-          const mediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'video/webm;codecs=vp9',
-            videoBitsPerSecond: 5000000
+          updateStatus('Generating GIF...');
+          
+          const gif = new GIF({
+            workers: 2,
+            quality: 20,
+            workerScript: 'gif.worker.js',
+            width: reconCanvas.width,
+            height: reconCanvas.height,
+            debug: true
           });
           
-          const chunks = [];
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-              chunks.push(e.data);
-            }
-          };
+          console.log('Viewer mode: Adding frames to GIF...');
           
-          mediaRecorder.onstop = () => {
-            const blob = new Blob(chunks, { type: 'video/webm' });
+          // Add each frame
+          for (let i = 0; i < animationFrames.length; i++) {
+            const frame = animationFrames[i];
+            drawPoints(rctx, reconCanvas, frame.points);
+            
+            const delay = frame.isFinal ? 3000 : 100;
+            gif.addFrame(reconCanvas, {copy: true, delay: delay});
+            
+            setProgress(((i + 1) / animationFrames.length) * 30);
+          }
+          
+          console.log(`Viewer mode: Added ${animationFrames.length} frames`);
+          updateStatus('Encoding GIF...');
+          
+          let renderCompleted = false;
+          
+          gif.on('finished', (blob) => {
+            console.log('Viewer mode: GIF rendering finished');
+            renderCompleted = true;
+            
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = 'fourier_animation.webm';
+            link.download = 'fourier_animation.gif';
             link.click();
-            URL.revokeObjectURL(url);
             
-            updateStatus('Video download complete');
+            setTimeout(() => {
+              URL.revokeObjectURL(url);
+            }, 100);
+            
+            updateStatus('GIF download complete');
             showProgress(false);
             
             // Show final frame
             const finalPoints = reconstructFromCoefficients(data);
             drawPoints(rctx, reconCanvas, finalPoints);
-          };
+          });
           
-          mediaRecorder.start();
+          gif.on('progress', (progress) => {
+            console.log('Viewer mode: GIF encoding progress:', progress);
+            setProgress(30 + progress * 70);
+          });
           
-          for (let i = 0; i < animationFrames.length; i++) {
-            const frame = animationFrames[i];
-            drawPoints(rctx, reconCanvas, frame.points);
-            setProgress(((i + 1) / animationFrames.length) * 100);
-            
-            const delay = frame.isFinal ? 3000 : 100;
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
+          gif.on('abort', () => {
+            console.log('Viewer mode: GIF rendering aborted');
+            alert('GIF generation was aborted');
+            updateStatus('GIF generation aborted');
+            showProgress(false);
+          });
           
-          mediaRecorder.stop();
+          console.log('Viewer mode: Starting GIF render...');
+          gif.render();
+          
+          // Set 30 second timeout
+          setTimeout(() => {
+            if (!renderCompleted) {
+              console.log('Viewer mode: GIF rendering timeout');
+              gif.abort();
+              alert('GIF generation timed out');
+              updateStatus('GIF generation timeout');
+              showProgress(false);
+            }
+          }, 30000);
           
         } catch (error) {
-          console.error("Error:", error);
-          alert("Error generating video. Your browser may not support WebM format.");
-          updateStatus('Video generation failed');
+          console.error("Viewer mode error:", error);
+          alert("Error generating GIF: " + error.message);
+          updateStatus('GIF generation failed');
           showProgress(false);
         }
       });
@@ -2343,28 +2488,6 @@
         // Normal mode - share button enabled after transform
         document.getElementById('shareBtn').disabled = true;
       }
-    });
-    
-    // Save coefficients on Fourier transform
-    document.getElementById('processBtn').addEventListener('click', () => {
-      // Calculate coefficients after transform
-      setTimeout(() => {
-        const points3d = generatePoints3d();
-        const points2d = generatePoints2d();
-        
-        if (points2d.length > 0) {
-          const K = parseInt(document.getElementById('kValue').value);
-          const useMultiStroke = multiStrokeMode;
-          const inputPoints = useMultiStroke ? points3d : points2d;
-          
-          // Get coefficients for sharing (use user specified K)
-          const shareK = K;
-          currentCoefficients = getFourierCoefficients(inputPoints, shareK, useMultiStroke);
-          
-          // Enable share button
-          document.getElementById('shareBtn').disabled = false;
-        }
-      }, 100);
     });
 
     // ============================================
