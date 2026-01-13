@@ -704,8 +704,8 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成（出力点数をK*5に固定）
-      const numOutputPoints = actualK * 5;
+      // 再構成（出力点数を入力の3倍に固定）
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -753,8 +753,8 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      // 再構成（出力点数をK*5に固定）
-      const numOutputPoints = actualK * 5;
+      // 再構成（出力点数を入力の3倍に固定）
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -914,7 +914,7 @@
       const is3d = data.d.length === 3;
       const freqs = fftfreq(N);
       
-      const numOutputPoints = K.length * 5;
+      const numOutputPoints = N * 3;
       const result = [];
       
       if (is3d) {
@@ -1971,11 +1971,12 @@
         updateStatus('GIFを生成中...');
         
         const gif = new GIF({
-          quality: 10,
+          workers: 2,
+          quality: 20,
+          workerScript: 'gif.worker.js',
           width: reconCanvas.width,
           height: reconCanvas.height,
-          debug: true,
-          workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+          debug: true
         });
         
         console.log('Adding frames to GIF...');
@@ -2447,11 +2448,12 @@
           updateStatus('GIFを生成中...');
           
           const gif = new GIF({
-            quality: 10,
+            workers: 2,
+            quality: 20,
+            workerScript: 'gif.worker.js',
             width: reconCanvas.width,
             height: reconCanvas.height,
-            debug: true,
-            workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+            debug: true
           });
           
           console.log('Viewer mode: Adding frames to GIF...');

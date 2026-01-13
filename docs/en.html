@@ -679,7 +679,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = actualK * 5;
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -722,7 +722,7 @@
       const actualK = Math.min(K, N);
       const selectedIndices = indices.slice(0, actualK);
       
-      const numOutputPoints = actualK * 5;
+      const numOutputPoints = N * 3;
       const result = [];
       
       for (let i = 0; i < numOutputPoints; i++) {
@@ -877,7 +877,7 @@
       const is3d = data.d.length === 3;
       const freqs = fftfreq(N);
       
-      const numOutputPoints = K.length * 5;
+      const numOutputPoints = N * 3;
       const result = [];
       
       if (is3d) {
@@ -1912,11 +1912,12 @@
         updateStatus('Generating GIF...');
         
         const gif = new GIF({
-          quality: 10,
+          workers: 2,
+          quality: 20,
+          workerScript: 'gif.worker.js',
           width: reconCanvas.width,
           height: reconCanvas.height,
-          debug: true,
-          workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+          debug: true
         });
         
         console.log('Adding frames to GIF...');
@@ -2386,11 +2387,19 @@
         setProgress(0);
         
         try {
+          updateStatus('Generating GIF...');
+          
           const gif = new GIF({
-          workers: 0,
-          quality: 10,
-          width: reconCanvas.width,
-          height: reconCanvas.height
+            workers: 2,
+            quality: 20,
+            workerScript: 'gif.worker.js',
+            width: reconCanvas.width,
+            height: reconCanvas.height,
+            debug: true
+          });
+          
+          console.log('Viewer mode: Adding frames to GIF...');
+          
           // Add each frame
           for (let i = 0; i < animationFrames.length; i++) {
             const frame = animationFrames[i];
@@ -2399,16 +2408,27 @@
             const delay = frame.isFinal ? 3000 : 100;
             gif.addFrame(reconCanvas, {copy: true, delay: delay});
             
-            setProgress(((i + 1) / animationFrames.length) * 50);
+            setProgress(((i + 1) / animationFrames.length) * 30);
           }
           
+          console.log(`Viewer mode: Added ${animationFrames.length} frames`);
+          updateStatus('Encoding GIF...');
+          
+          let renderCompleted = false;
+          
           gif.on('finished', (blob) => {
+            console.log('Viewer mode: GIF rendering finished');
+            renderCompleted = true;
+            
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
             link.download = 'fourier_animation.gif';
             link.click();
-            URL.revokeObjectURL(url);
+            
+            setTimeout(() => {
+              URL.revokeObjectURL(url);
+            }, 100);
             
             updateStatus('GIF download complete');
             showProgress(false);
@@ -2419,13 +2439,33 @@
           });
           
           gif.on('progress', (progress) => {
-            setProgress(50 + progress * 50);
+            console.log('Viewer mode: GIF encoding progress:', progress);
+            setProgress(30 + progress * 70);
           });
           
+          gif.on('abort', () => {
+            console.log('Viewer mode: GIF rendering aborted');
+            alert('GIF generation was aborted');
+            updateStatus('GIF generation aborted');
+            showProgress(false);
+          });
+          
+          console.log('Viewer mode: Starting GIF render...');
           gif.render();
           
+          // Set 30 second timeout
+          setTimeout(() => {
+            if (!renderCompleted) {
+              console.log('Viewer mode: GIF rendering timeout');
+              gif.abort();
+              alert('GIF generation timed out');
+              updateStatus('GIF generation timeout');
+              showProgress(false);
+            }
+          }, 30000);
+          
         } catch (error) {
-          console.error("Error:", error);
+          console.error("Viewer mode error:", error);
           alert("Error generating GIF: " + error.message);
           updateStatus('GIF generation failed');
           showProgress(false);
