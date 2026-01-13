@@ -7,6 +7,7 @@
   <link rel="alternate" hreflang="en" href="en.html">
   <link rel="alternate" hreflang="ja" href="index.html">
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
   <script>
     // 英語ブラウザを英語ページにリダイレクト
     (function() {
@@ -514,7 +515,7 @@
         
         <div class="button-group">
           <button id="animationBtn" class="animation">アニメーション生成</button>
-          <button id="downloadVideoBtn" class="animation" disabled>動画をダウンロード</button>
+          <button id="downloadVideoBtn" class="animation" disabled>GIFをダウンロード</button>
         </div>
       </div>
     </div>
@@ -1413,7 +1414,7 @@
 
     // 再構成キャンバスの設定
     const reconCanvas = document.getElementById('reconCanvas');
-    const rctx = reconCanvas.getContext('2d');
+    const rctx = reconCanvas.getContext('2d', { willReadFrequently: true });
     
     // アニメーション用
     let animationFrames = [];
@@ -1948,7 +1949,7 @@
       }, delay);
     }
 
-    // 動画ダウンロードボタン
+    // GIFダウンロードボタン
     document.getElementById('downloadVideoBtn').addEventListener('click', async () => {
       if (animationFrames.length === 0) {
         alert("まずアニメーションを生成してください");
@@ -1962,58 +1963,95 @@
         animationId = null;
       }
 
-      updateStatus('動画を生成中...');
+      updateStatus('GIFを生成中...');
       showProgress(true);
       setProgress(0);
 
       try {
-        const stream = reconCanvas.captureStream(30);
-        const mediaRecorder = new MediaRecorder(stream, {
-          mimeType: 'video/webm;codecs=vp9',
-          videoBitsPerSecond: 5000000
+        updateStatus('GIFを生成中...');
+        
+        const gif = new GIF({
+          quality: 10,
+          width: reconCanvas.width,
+          height: reconCanvas.height,
+          debug: true,
+          workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
         });
         
-        const chunks = [];
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            chunks.push(e.data);
-          }
-        };
+        console.log('Adding frames to GIF...');
         
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'video/webm' });
+        // 各フレームを追加
+        for (let i = 0; i < animationFrames.length; i++) {
+          const frame = animationFrames[i];
+          drawPoints(rctx, reconCanvas, frame.points);
+          
+          const delay = frame.isFinal ? 3000 : 100;
+          gif.addFrame(reconCanvas, {copy: true, delay: delay});
+          
+          setProgress(((i + 1) / animationFrames.length) * 30);
+        }
+        
+        console.log(`Added ${animationFrames.length} frames`);
+        updateStatus('GIFをエンコード中...');
+        
+        let renderCompleted = false;
+        
+        gif.on('finished', (blob) => {
+          console.log('GIF rendering finished, blob size:', blob.size);
+          renderCompleted = true;
+          
           const url = URL.createObjectURL(blob);
           const link = document.createElement('a');
           link.href = url;
-          link.download = 'fourier_animation.webm';
+          link.download = 'fourier_animation.gif';
           link.click();
-          URL.revokeObjectURL(url);
           
-          updateStatus('動画のダウンロードが完了しました');
+          setTimeout(() => {
+            URL.revokeObjectURL(url);
+          }, 100);
+          
+          updateStatus('GIFのダウンロードが完了しました');
           showProgress(false);
           
           isPlaying = true;
           playAnimation();
-        };
-
-        mediaRecorder.start();
+        });
         
-        for (let i = 0; i < animationFrames.length; i++) {
-          const frame = animationFrames[i];
-          drawPoints(rctx, reconCanvas, frame.points);
-          setProgress(((i + 1) / animationFrames.length) * 100);
-          
-          const delay = frame.isFinal ? 3000 : 100;
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
+        gif.on('progress', (progress) => {
+          console.log('GIF encoding progress:', progress);
+          setProgress(30 + progress * 70);
+        });
         
-        mediaRecorder.stop();
+        gif.on('abort', () => {
+          console.log('GIF rendering aborted');
+          alert('GIF生成が中断されました');
+          updateStatus('GIF生成が中断されました');
+          showProgress(false);
+          isPlaying = true;
+          playAnimation();
+        });
+        
+        console.log('Starting GIF render...');
+        gif.render();
+        
+        // 30秒のタイムアウトを設定
+        setTimeout(() => {
+          if (!renderCompleted) {
+            console.log('GIF rendering timeout');
+            gif.abort();
+            alert('GIF生成がタイムアウトしました。フレーム数を減らしてください。');
+            updateStatus('GIF生成タイムアウト');
+            showProgress(false);
+            isPlaying = true;
+            playAnimation();
+          }
+        }, 30000);
         
       } catch (error) {
         console.error("Error:", error);
         
-        alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
-        updateStatus('動画生成に失敗しました');
+        alert("GIF生成中にエラーが発生しました: " + error.message);
+        updateStatus('GIF生成に失敗しました');
         showProgress(false);
         
         isPlaying = true;
@@ -2333,11 +2371,11 @@
       playBtn.textContent = 'アニメーション再生';
       buttonGroup.appendChild(playBtn);
       
-      // 動画ダウンロードボタン
+      // GIFダウンロードボタン
       const videoBtn = document.createElement('button');
       videoBtn.id = 'viewerVideoBtn';
       videoBtn.className = 'animation';
-      videoBtn.textContent = '動画をダウンロード';
+      videoBtn.textContent = 'GIFをダウンロード';
       videoBtn.disabled = true;
       buttonGroup.appendChild(videoBtn);
       
@@ -2401,58 +2439,91 @@
           animationId = null;
         }
         
-        updateStatus('動画を生成中...');
+        updateStatus('GIFを生成中...');
         showProgress(true);
         setProgress(0);
         
         try {
-          const stream = reconCanvas.captureStream(30);
-          const mediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'video/webm;codecs=vp9',
-            videoBitsPerSecond: 5000000
+          updateStatus('GIFを生成中...');
+          
+          const gif = new GIF({
+            quality: 10,
+            width: reconCanvas.width,
+            height: reconCanvas.height,
+            debug: true,
+            workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
           });
           
-          const chunks = [];
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) {
-              chunks.push(e.data);
-            }
-          };
+          console.log('Viewer mode: Adding frames to GIF...');
           
-          mediaRecorder.onstop = () => {
-            const blob = new Blob(chunks, { type: 'video/webm' });
+          // 各フレームを追加
+          for (let i = 0; i < animationFrames.length; i++) {
+            const frame = animationFrames[i];
+            drawPoints(rctx, reconCanvas, frame.points);
+            
+            const delay = frame.isFinal ? 3000 : 100;
+            gif.addFrame(reconCanvas, {copy: true, delay: delay});
+            
+            setProgress(((i + 1) / animationFrames.length) * 30);
+          }
+          
+          console.log(`Viewer mode: Added ${animationFrames.length} frames`);
+          updateStatus('GIFをエンコード中...');
+          
+          let renderCompleted = false;
+          
+          gif.on('finished', (blob) => {
+            console.log('Viewer mode: GIF rendering finished');
+            renderCompleted = true;
+            
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = 'fourier_animation.webm';
+            link.download = 'fourier_animation.gif';
             link.click();
-            URL.revokeObjectURL(url);
             
-            updateStatus('動画のダウンロードが完了しました');
+            setTimeout(() => {
+              URL.revokeObjectURL(url);
+            }, 100);
+            
+            updateStatus('GIFのダウンロードが完了しました');
             showProgress(false);
             
             // 最終フレームを表示
             const finalPoints = reconstructFromCoefficients(data);
             drawPoints(rctx, reconCanvas, finalPoints);
-          };
+          });
           
-          mediaRecorder.start();
+          gif.on('progress', (progress) => {
+            console.log('Viewer mode: GIF encoding progress:', progress);
+            setProgress(30 + progress * 70);
+          });
           
-          for (let i = 0; i < animationFrames.length; i++) {
-            const frame = animationFrames[i];
-            drawPoints(rctx, reconCanvas, frame.points);
-            setProgress(((i + 1) / animationFrames.length) * 100);
-            
-            const delay = frame.isFinal ? 3000 : 100;
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
+          gif.on('abort', () => {
+            console.log('Viewer mode: GIF rendering aborted');
+            alert('GIF生成が中断されました');
+            updateStatus('GIF生成が中断されました');
+            showProgress(false);
+          });
           
-          mediaRecorder.stop();
+          console.log('Viewer mode: Starting GIF render...');
+          gif.render();
+          
+          // 30秒のタイムアウト
+          setTimeout(() => {
+            if (!renderCompleted) {
+              console.log('Viewer mode: GIF rendering timeout');
+              gif.abort();
+              alert('GIF生成がタイムアウトしました');
+              updateStatus('GIF生成タイムアウト');
+              showProgress(false);
+            }
+          }, 30000);
           
         } catch (error) {
-          console.error("Error:", error);
-          alert("動画生成中にエラーが発生しました。ブラウザがWebM形式に対応していない可能性があります。");
-          updateStatus('動画生成に失敗しました');
+          console.error("Viewer mode error:", error);
+          alert("GIF生成中にエラーが発生しました: " + error.message);
+          updateStatus('GIF生成に失敗しました');
           showProgress(false);
         }
       });
